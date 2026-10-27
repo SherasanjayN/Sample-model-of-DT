@@ -8,6 +8,10 @@ import { GroupChat } from './GroupChat';
 import { AnnouncementsFeed } from './AnnouncementsFeed';
 import { LoanEmiCalculator } from './LoanEmiCalculator';
 import { EmergencySosModal } from './EmergencySosModal';
+import { RepaymentLedger } from './RepaymentLedger';
+import { VoiceInputModal } from './VoiceInputModal';
+import { AiTechExplanationModal } from './AiTechExplanationModal';
+import { generateLoanSanctionPdf } from '../utils/pdfGenerator';
 import {
   CreditCard,
   IndianRupee,
@@ -27,6 +31,11 @@ import {
   Calculator,
   AlertTriangle,
   X,
+  Mic,
+  Sparkles,
+  Download,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 export const MemberDashboard: React.FC = () => {
@@ -39,18 +48,27 @@ export const MemberDashboard: React.FC = () => {
   const [loadingLoans, setLoadingLoans] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [showSosModal, setShowSosModal] = useState(false);
+  const [activeLedgerLoanId, setActiveLedgerLoanId] = useState<string | null>(null);
+  const [voiceField, setVoiceField] = useState<'amount' | 'purpose' | null>(null);
+  const [showAiExplanation, setShowAiExplanation] = useState(false);
 
   // Apply form state
   const [amount, setAmount] = useState<string>('5000');
   const [paymentMode, setPaymentMode] = useState<'UPI' | 'CASH'>('UPI');
+  const [repaymentFreq, setRepaymentFreq] = useState<'WEEKLY' | 'MONTHLY'>('WEEKLY');
+  const [tenurePeriod, setTenurePeriod] = useState<number>(10);
   const [upiEmail, setUpiEmail] = useState<string>('');
   const [purpose, setPurpose] = useState<string>('');
   const [submittingLoan, setSubmittingLoan] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
-  const handleSelectEmiPlan = (selectedAmount: number) => {
+  const handleSelectEmiPlan = (selectedAmount: number, tenure?: number) => {
     setAmount(selectedAmount.toString());
+    if (tenure) {
+      setTenurePeriod(tenure);
+      setRepaymentFreq('MONTHLY');
+    }
     setShowApplyModal(true);
     setFormError(null);
   };
@@ -117,6 +135,8 @@ export const MemberDashboard: React.FC = () => {
         payment_mode: paymentMode,
         upi_email: paymentMode === 'UPI' ? upiEmail.trim() : undefined,
         purpose: purpose.trim(),
+        repayment_frequency: repaymentFreq,
+        tenure_period: tenurePeriod,
       });
 
       setFormSuccess(res.message || t.loanSubmittedSuccess);
@@ -305,8 +325,13 @@ export const MemberDashboard: React.FC = () => {
                           <IndianRupee className="w-5 h-5 text-emerald-600" />
                           {loan.amount.toLocaleString('en-IN')}
                         </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
                         <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold border border-slate-200">
                           {loan.payment_mode === 'UPI' ? t.modeUpi : t.modeCash}
+                        </span>
+                        <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
+                          {loan.repayment_frequency || 'WEEKLY'} ({loan.tenure_period || (loan.repayment_frequency === 'MONTHLY' ? 6 : 10)} {language === 'ta' ? 'தவணைகள்' : 'Cycles'})
                         </span>
                       </div>
                       <div className="text-xs text-slate-500 mt-1">
@@ -324,9 +349,9 @@ export const MemberDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                       <span
-                        className={`text-xs px-3 py-1 rounded-full font-bold border ${
+                        className={`text-xs px-3 py-1 rounded-full font-bold border self-start sm:self-auto ${
                           loan.status === 'APPROVED'
                             ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                             : loan.status === 'REJECTED'
@@ -344,6 +369,39 @@ export const MemberDashboard: React.FC = () => {
                           ? t.loanStatusPendingSuperAdmin
                           : t.loanStatusPendingGroupAdmin}
                       </span>
+
+                      {loan.status === 'APPROVED' && (
+                        <div className="flex items-center space-x-1.5">
+                          <button
+                            type="button"
+                            onClick={() => generateLoanSanctionPdf(loan, language)}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-300 inline-flex items-center space-x-1 transition-colors"
+                            title="Download Official Loan Sanction Letter"
+                          >
+                            <Download className="w-3.5 h-3.5 text-slate-500" />
+                            <span>PDF</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setActiveLedgerLoanId(activeLedgerLoanId === loan.id ? null : loan.id)
+                            }
+                            className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all inline-flex items-center space-x-1 ${
+                              activeLedgerLoanId === loan.id
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                            }`}
+                          >
+                            <span>{language === 'ta' ? 'கணக்கு ஏடு' : 'Passbook Ledger'}</span>
+                            {activeLedgerLoanId === loan.id ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -351,6 +409,19 @@ export const MemberDashboard: React.FC = () => {
                   <div className="mt-4">
                     <LoanTimeline loan={loan} />
                   </div>
+
+                  {/* Repayment Ledger Section */}
+                  {loan.status === 'APPROVED' && activeLedgerLoanId === loan.id && (
+                    <div className="mt-5 pt-4 border-t border-slate-200">
+                      <RepaymentLedger
+                        loan={loan}
+                        canRecordPayment={false}
+                        onLoanUpdated={(updated) => {
+                          setLoans((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -459,9 +530,20 @@ export const MemberDashboard: React.FC = () => {
             <form onSubmit={handleApplyLoan} className="space-y-4">
               {/* Amount */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  {t.loanAmount} <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    {t.loanAmount} <span className="text-rose-500">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setVoiceField('amount')}
+                    className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-md border border-emerald-300 inline-flex items-center space-x-1"
+                    title="Speak loan amount"
+                  >
+                    <Mic className="w-3 h-3 text-emerald-600" />
+                    <span>{language === 'ta' ? 'குரல் வழி உள்ளீடு' : 'AI Voice Input'}</span>
+                  </button>
+                </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                     <IndianRupee className="w-4 h-4" />
@@ -481,6 +563,70 @@ export const MemberDashboard: React.FC = () => {
                 <p className="text-[11px] text-slate-500 mt-1">
                   {t.maxCapNotice}
                 </p>
+              </div>
+
+              {/* Repayment Frequency (Weekly vs Monthly) */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  {language === 'ta' ? 'தவணை முறை (Weekly vs Monthly)' : 'Repayment Model & Cycles'} <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRepaymentFreq('WEEKLY');
+                      setTenurePeriod(10);
+                    }}
+                    className={`py-1.5 px-3 text-xs font-bold rounded-lg border transition-all text-center ${
+                      repaymentFreq === 'WEEKLY'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    {language === 'ta' ? 'வாராந்திர தவணை' : 'Weekly EMI'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRepaymentFreq('MONTHLY');
+                      setTenurePeriod(6);
+                    }}
+                    className={`py-1.5 px-3 text-xs font-bold rounded-lg border transition-all text-center ${
+                      repaymentFreq === 'MONTHLY'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    {language === 'ta' ? 'மாதாந்திர தவணை' : 'Monthly EMI'}
+                  </button>
+                </div>
+
+                <div className="flex items-center space-x-2 text-xs bg-slate-50 p-2 rounded-lg border border-slate-200">
+                  <span className="text-slate-600 font-semibold">
+                    {repaymentFreq === 'WEEKLY'
+                      ? (language === 'ta' ? 'வாரங்கள்:' : 'Weeks:')
+                      : (language === 'ta' ? 'மாதங்கள்:' : 'Months:')}
+                  </span>
+                  <div className="flex space-x-1">
+                    {(repaymentFreq === 'WEEKLY' ? [10, 12, 20, 52] : [3, 6, 9, 12]).map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setTenurePeriod(c)}
+                        className={`px-2 py-0.5 text-[11px] font-bold rounded border ${
+                          tenurePeriod === c
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-white text-slate-700 border-slate-300'
+                        }`}
+                      >
+                        {c}{repaymentFreq === 'WEEKLY' ? 'W' : 'M'}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="ml-auto text-emerald-800 font-bold text-xs bg-white px-2 py-0.5 rounded border border-emerald-200">
+                    ≈ ₹{Math.ceil(Number(amount || 0) / (tenurePeriod || 1))}/{repaymentFreq === 'WEEKLY' ? 'wk' : 'mo'}
+                  </span>
+                </div>
               </div>
 
               {/* Payment Mode */}
@@ -552,9 +698,20 @@ export const MemberDashboard: React.FC = () => {
 
               {/* Purpose */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  {t.loanPurpose}
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    {t.loanPurpose}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setVoiceField('purpose')}
+                    className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-md border border-emerald-300 inline-flex items-center space-x-1"
+                    title="Speak loan purpose"
+                  >
+                    <Mic className="w-3 h-3 text-emerald-600" />
+                    <span>{language === 'ta' ? 'குரல் உள்ளீடு' : 'AI Voice Input'}</span>
+                  </button>
+                </div>
                 <textarea
                   rows={2}
                   value={purpose}
@@ -589,6 +746,28 @@ export const MemberDashboard: React.FC = () => {
       <EmergencySosModal
         isOpen={showSosModal}
         onClose={() => setShowSosModal(false)}
+      />
+
+      {/* Voice Input Modal */}
+      <VoiceInputModal
+        isOpen={voiceField !== null}
+        onClose={() => setVoiceField(null)}
+        fieldName={voiceField || 'amount'}
+        fieldLabel={voiceField === 'amount' ? t.loanAmount : t.loanPurpose}
+        onApplyValue={(val) => {
+          if (voiceField === 'amount') {
+            setAmount(val.toString());
+          } else if (voiceField === 'purpose') {
+            setPurpose(val.toString());
+          }
+        }}
+        onOpenAiTech={() => setShowAiExplanation(true)}
+      />
+
+      {/* AI Technology Architecture Explanation Modal */}
+      <AiTechExplanationModal
+        isOpen={showAiExplanation}
+        onClose={() => setShowAiExplanation(false)}
       />
     </div>
   );

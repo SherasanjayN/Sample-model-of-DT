@@ -7,7 +7,7 @@
       "email": "sherasanjayn@gmail.com",
       "area": "Mylapore",
       "district": "Chennai",
-      "password_hash": "$2b$10$iEZZcs04wVmRwBbvIGVUT.EpsTL8R1ZYFDfw8y5h/sltk.0g3QrYa",
+      "password_hash": "$2b$10$W43BJTvxTTmYlFJMGPkhb.r6QACB7t5d3Ebnz/wk8g2D71n.O0YXm",
       "status": "APPROVED",
       "role": "SUPER_ADMIN",
       "group_id": null,
@@ -120,6 +120,104 @@
           "updated_by_name": "Sanjay N (Super Admin)",
           "updated_by_role": "SUPER_ADMIN",
           "note": "Sanction granted under Magalir Kuzhu credit facility."
+        }
+      ],
+      "repayment_frequency": "WEEKLY",
+      "tenure_period": 10,
+      "total_paid": 1500,
+      "remaining_balance": 6000,
+      "next_due_date": "2026-11-07",
+      "sanction_date": "2026-10-27T06:43:26.494Z",
+      "installments": [
+        {
+          "id": "inst_1",
+          "installment_number": 1,
+          "due_date": "2026-10-24",
+          "due_amount": 750,
+          "paid_amount": 750,
+          "paid_date": "2026-10-24T10:30:00.000Z",
+          "payment_mode": "CASH",
+          "status": "PAID",
+          "recorded_by_name": "Kavitha Ramasamy",
+          "transaction_ref": "TXN_782011",
+          "note": "Collected during Saturday group meeting"
+        },
+        {
+          "id": "inst_2",
+          "installment_number": 2,
+          "due_date": "2026-10-31",
+          "due_amount": 750,
+          "paid_amount": 750,
+          "paid_date": "2026-10-31T11:00:00.000Z",
+          "payment_mode": "UPI",
+          "status": "PAID",
+          "recorded_by_name": "Kavitha Ramasamy",
+          "transaction_ref": "TXN_991823",
+          "note": "Direct UPI transfer verified"
+        },
+        {
+          "id": "inst_3",
+          "installment_number": 3,
+          "due_date": "2026-11-07",
+          "due_amount": 750,
+          "paid_amount": 0,
+          "status": "PENDING"
+        },
+        {
+          "id": "inst_4",
+          "installment_number": 4,
+          "due_date": "2026-11-14",
+          "due_amount": 750,
+          "paid_amount": 0,
+          "status": "PENDING"
+        },
+        {
+          "id": "inst_5",
+          "installment_number": 5,
+          "due_date": "2026-11-21",
+          "due_amount": 750,
+          "paid_amount": 0,
+          "status": "PENDING"
+        },
+        {
+          "id": "inst_6",
+          "installment_number": 6,
+          "due_date": "2026-11-28",
+          "due_amount": 750,
+          "paid_amount": 0,
+          "status": "PENDING"
+        },
+        {
+          "id": "inst_7",
+          "installment_number": 7,
+          "due_date": "2026-12-05",
+          "due_amount": 750,
+          "paid_amount": 0,
+          "status": "PENDING"
+        },
+        {
+          "id": "inst_8",
+          "installment_number": 8,
+          "due_date": "2026-12-12",
+          "due_amount": 750,
+          "paid_amount": 0,
+          "status": "PENDING"
+        },
+        {
+          "id": "inst_9",
+          "installment_number": 9,
+          "due_date": "2026-12-19",
+          "due_amount": 750,
+          "paid_amount": 0,
+          "status": "PENDING"
+        },
+        {
+          "id": "inst_10",
+          "installment_number": 10,
+          "due_date": "2026-12-26",
+          "due_amount": 750,
+          "paid_amount": 0,
+          "status": "PENDING"
         }
       ]
     },

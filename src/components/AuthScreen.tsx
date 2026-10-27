@@ -542,10 +542,10 @@ export const AuthScreen: React.FC = () => {
                   <span>{t.roleGroupAdmin} (Kavitha - Chennai)</span>
                 </div>
                 <div className="text-slate-700 font-mono text-[11px] mt-0.5">
-                  Email: <span className="font-semibold text-slate-900">kavitha.shg@gmail.com</span>
+                  Email: <span className="font-semibold text-slate-900">kavitha.ga@gmail.com</span>
                 </div>
                 <div className="text-slate-700 font-mono text-[11px]">
-                  Password: <span className="font-semibold text-slate-900">Member@123</span>
+                  Password: <span className="font-semibold text-slate-900">Group@123</span>
                 </div>
                 <div className="text-[10px] text-emerald-800 mt-0.5">
                   {t.groupAdminRoleDesc}
@@ -553,7 +553,7 @@ export const AuthScreen: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => handleQuickFill('kavitha.shg@gmail.com', 'Member@123')}
+                onClick={() => handleQuickFill('kavitha.ga@gmail.com', 'Group@123')}
                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs transition-colors text-[11px] whitespace-nowrap ml-2"
               >
                 {t.clickToFill}

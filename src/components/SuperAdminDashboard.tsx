@@ -9,6 +9,8 @@ import { AnnouncementsFeed } from './AnnouncementsFeed';
 import { SosAlertBanner } from './SosAlertBanner';
 import { EmailConfigModal } from './EmailConfigModal';
 import { EmailViewerModal } from './EmailViewerModal';
+import { RepaymentLedger } from './RepaymentLedger';
+import { generateLoanSanctionPdf } from '../utils/pdfGenerator';
 import {
   ShieldCheck,
   Users,
@@ -33,6 +35,10 @@ import {
   Settings,
   Eye,
   AlertTriangle,
+  Download,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 export const SuperAdminDashboard: React.FC = () => {
@@ -42,6 +48,8 @@ export const SuperAdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'pending' | 'users' | 'groups' | 'loans' | 'announcements' | 'emails'
   >('pending');
+
+  const [activeLedgerLoanId, setActiveLedgerLoanId] = useState<string | null>(null);
 
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -708,6 +716,59 @@ export const SuperAdminDashboard: React.FC = () => {
                   )}
 
                   <LoanTimeline loan={loan} />
+
+                  {/* Sanction Actions for Approved Loans */}
+                  {loan.status === 'APPROVED' && (
+                    <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => generateLoanSanctionPdf(loan, language)}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl border border-slate-300 inline-flex items-center space-x-1.5 transition-colors"
+                        >
+                          <Download className="w-3.5 h-3.5 text-slate-600" />
+                          <span>{language === 'ta' ? 'அனுமதி சான்றிதழ் PDF' : 'Sanction Certificate PDF'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActiveLedgerLoanId(activeLedgerLoanId === loan.id ? null : loan.id)
+                          }
+                          className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all inline-flex items-center space-x-1.5 ${
+                            activeLedgerLoanId === loan.id
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                          }`}
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          <span>{language === 'ta' ? 'தவணை கணக்கு ஏடு' : 'Repayment Ledger & Passbook'}</span>
+                          {activeLedgerLoanId === loan.id ? (
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+
+                      <span className="text-[11px] text-slate-500">
+                        {loan.repayment_frequency || 'WEEKLY'} · {loan.tenure_period || 10} {language === 'ta' ? 'தவணைகள்' : 'cycles'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Repayment Ledger Viewer */}
+                  {loan.status === 'APPROVED' && activeLedgerLoanId === loan.id && (
+                    <div className="pt-4 border-t border-slate-200">
+                      <RepaymentLedger
+                        loan={loan}
+                        canRecordPayment={true}
+                        onLoanUpdated={(updated) => {
+                          setLoans((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

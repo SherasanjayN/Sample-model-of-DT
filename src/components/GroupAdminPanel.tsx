@@ -8,6 +8,7 @@ import { GroupChat } from './GroupChat';
 import { AnnouncementsFeed } from './AnnouncementsFeed';
 import { MeetingMinutesManager } from './MeetingMinutesManager';
 import { SosAlertBanner } from './SosAlertBanner';
+import { RepaymentLedger } from './RepaymentLedger';
 import {
   ShieldCheck,
   CreditCard,
@@ -23,15 +24,18 @@ import {
   MapPin,
   RefreshCw,
   Calendar,
+  BookOpen,
+  Download,
 } from 'lucide-react';
 
 export const GroupAdminPanel: React.FC = () => {
   const { user, group } = useAuth();
   const { t, language } = useLanguage();
-  const [activeTab, setActiveTab] = useState<'loans' | 'members' | 'mom' | 'chat' | 'announcements'>('loans');
+  const [activeTab, setActiveTab] = useState<'loans' | 'ledgers' | 'members' | 'mom' | 'chat' | 'announcements'>('loans');
   const [loans, setLoans] = useState<Loan[]>([]);
   const [members, setMembers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedLedgerLoanId, setSelectedLedgerLoanId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
@@ -165,6 +169,23 @@ export const GroupAdminPanel: React.FC = () => {
           {pendingReview.length > 0 && (
             <span className="ml-1.5 px-2 py-0.2 rounded-full bg-amber-400 text-amber-950 font-extrabold text-[11px]">
               {pendingReview.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('ledgers')}
+          className={`flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+            activeTab === 'ledgers'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
+          }`}
+        >
+          <BookOpen className="w-4 h-4" />
+          <span>{language === 'ta' ? 'தவணை கணக்கு ஏடுகள்' : 'Repayment Ledgers'}</span>
+          {loans.filter((l) => l.status === 'APPROVED').length > 0 && (
+            <span className="ml-1.5 px-2 py-0.2 rounded-full bg-emerald-100 text-emerald-900 font-extrabold text-[11px]">
+              {loans.filter((l) => l.status === 'APPROVED').length}
             </span>
           )}
         </button>
@@ -370,6 +391,103 @@ export const GroupAdminPanel: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Tab: Repayment Ledgers & Weekly Collection Tracking */}
+      {activeTab === 'ledgers' && (
+        <div className="space-y-6">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                  <BookOpen className="w-5 h-5 text-emerald-600" />
+                  <span>
+                    {language === 'ta'
+                      ? 'குழு உறுப்பினர் கடன் தவணை கணக்கு ஏடுகள்'
+                      : 'Group Member Repayment Ledgers & Collections'}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {language === 'ta'
+                    ? 'வாராந்திர கூட்டத்தில் சேகரிக்கப்படும் கடன் தவணை ரொக்கம் / UPI தொகையை பதிவு செய்யவும்.'
+                    : 'Record weekly/monthly installment collections and print passbooks.'}
+                </p>
+              </div>
+            </div>
+
+            {loans.filter((l) => l.status === 'APPROVED').length === 0 ? (
+              <div className="text-center py-10 text-slate-500 text-xs">
+                {language === 'ta'
+                  ? 'உங்கள் குழுவில் இதுவரை கடன் அனுமதிக்கப்படவில்லை.'
+                  : 'No sanctioned loans available for repayment tracking in this group yet.'}
+              </div>
+            ) : (
+              <div className="space-y-6 mt-4">
+                {/* Loan Selector Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {loans
+                    .filter((l) => l.status === 'APPROVED')
+                    .map((loan) => {
+                      const isSelected =
+                        (selectedLedgerLoanId || loans.filter((l) => l.status === 'APPROVED')[0]?.id) === loan.id;
+                      const paid = loan.total_paid || 0;
+                      const bal = loan.remaining_balance !== undefined ? loan.remaining_balance : loan.amount;
+
+                      return (
+                        <div
+                          key={loan.id}
+                          onClick={() => setSelectedLedgerLoanId(loan.id)}
+                          className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                            isSelected
+                              ? 'bg-emerald-50/70 border-emerald-500 shadow-xs ring-1 ring-emerald-400'
+                              : 'bg-white border-slate-200 hover:border-emerald-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-900 text-sm">{loan.user_name}</span>
+                            <span className="text-xs font-extrabold text-emerald-700">
+                              ₹{loan.amount.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            {loan.repayment_frequency || 'WEEKLY'} · {loan.tenure_period || 10} cycles
+                          </div>
+                          <div className="flex justify-between items-center text-xs mt-2 pt-2 border-t border-slate-200">
+                            <span className="text-emerald-700 font-semibold">
+                              Paid: ₹{paid.toLocaleString('en-IN')}
+                            </span>
+                            <span className="text-amber-700 font-semibold">
+                              Bal: ₹{bal.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {/* Detailed Active Ledger Card with Recording Capability */}
+                {(() => {
+                  const activeLoan =
+                    loans.find(
+                      (l) => l.id === (selectedLedgerLoanId || loans.filter((l) => l.status === 'APPROVED')[0]?.id)
+                    ) || loans.filter((l) => l.status === 'APPROVED')[0];
+
+                  if (!activeLoan) return null;
+
+                  return (
+                    <RepaymentLedger
+                      loan={activeLoan}
+                      canRecordPayment={true}
+                      onLoanUpdated={(updated) => {
+                        setLoans((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+                      }}
+                    />
+                  );
+                })()}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

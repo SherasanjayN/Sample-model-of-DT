@@ -25,6 +25,22 @@ export interface Group {
   created_at: string;
 }
 
+export type RepaymentFrequency = 'WEEKLY' | 'MONTHLY';
+
+export interface RepaymentInstallment {
+  id: string;
+  installment_number: number;
+  due_date: string;
+  due_amount: number;
+  paid_amount: number;
+  paid_date?: string;
+  payment_mode?: 'UPI' | 'CASH';
+  status: 'PENDING' | 'PAID' | 'PARTIAL' | 'OVERDUE';
+  recorded_by_name?: string;
+  transaction_ref?: string;
+  note?: string;
+}
+
 export interface LoanStatusEntry {
   status: 'PENDING_GROUP_ADMIN' | 'PENDING_SUPER_ADMIN' | 'APPROVED' | 'REJECTED';
   updated_at: string;
@@ -48,6 +64,46 @@ export interface Loan {
   status: 'PENDING_GROUP_ADMIN' | 'PENDING_SUPER_ADMIN' | 'APPROVED' | 'REJECTED';
   requested_at: string;
   status_history: LoanStatusEntry[];
+  repayment_frequency?: RepaymentFrequency;
+  tenure_period?: number;
+  installments?: RepaymentInstallment[];
+  total_paid?: number;
+  remaining_balance?: number;
+  next_due_date?: string;
+  sanction_date?: string;
+}
+
+export function generateInstallments(
+  amount: number,
+  frequency: RepaymentFrequency = 'WEEKLY',
+  tenure?: number,
+  startDate?: Date
+): RepaymentInstallment[] {
+  const count = tenure || (frequency === 'WEEKLY' ? 10 : 6);
+  const installmentAmount = Math.ceil(amount / count);
+  const start = startDate ? new Date(startDate) : new Date();
+  const installments: RepaymentInstallment[] = [];
+
+  for (let i = 1; i <= count; i++) {
+    const dueDate = new Date(start);
+    if (frequency === 'WEEKLY') {
+      dueDate.setDate(dueDate.getDate() + i * 7);
+    } else {
+      dueDate.setMonth(dueDate.getMonth() + i);
+    }
+
+    const thisDue = i === count ? (amount - (installmentAmount * (count - 1))) : installmentAmount;
+
+    installments.push({
+      id: `inst_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 5)}`,
+      installment_number: i,
+      due_date: dueDate.toISOString().split('T')[0],
+      due_amount: thisDue > 0 ? thisDue : installmentAmount,
+      paid_amount: 0,
+      status: 'PENDING',
+    });
+  }
+  return installments;
 }
 
 export interface Message {
@@ -476,6 +532,59 @@ class Database {
     const loan = this.findLoanById(id);
     if (!loan) return undefined;
     Object.assign(loan, updates);
+    this.save();
+    return loan;
+  }
+
+  public recordRepayment(
+    loanId: string,
+    installmentNumber: number,
+    payment: { amount: number; mode: 'UPI' | 'CASH'; recorded_by_name: string; note?: string }
+  ): Loan | undefined {
+    const loan = this.findLoanById(loanId);
+    if (!loan) return undefined;
+
+    if (!loan.installments || loan.installments.length === 0) {
+      loan.installments = generateInstallments(loan.amount, loan.repayment_frequency || 'WEEKLY', loan.tenure_period);
+    }
+
+    const inst = loan.installments.find(i => i.installment_number === installmentNumber);
+    if (!inst) return undefined;
+
+    inst.paid_amount = (inst.paid_amount || 0) + payment.amount;
+    inst.paid_date = new Date().toISOString();
+    inst.payment_mode = payment.mode;
+    inst.recorded_by_name = payment.recorded_by_name;
+    inst.note = payment.note;
+    inst.transaction_ref = `TXN_${Date.now().toString().slice(-6)}`;
+
+    if (inst.paid_amount >= inst.due_amount) {
+      inst.status = 'PAID';
+    } else if (inst.paid_amount > 0) {
+      inst.status = 'PARTIAL';
+    }
+
+    // Recompute total_paid, remaining_balance, and next_due_date
+    const totalPaid = loan.installments.reduce((sum, i) => sum + (i.paid_amount || 0), 0);
+    loan.total_paid = totalPaid;
+    loan.remaining_balance = Math.max(0, loan.amount - totalPaid);
+
+    // Update overdue flags and next due date
+    const today = new Date().toISOString().split('T')[0];
+    let nextDue: string | undefined = undefined;
+
+    loan.installments.forEach(i => {
+      if (i.status !== 'PAID') {
+        if (i.due_date < today) {
+          i.status = 'OVERDUE';
+        }
+        if (!nextDue) {
+          nextDue = i.due_date;
+        }
+      }
+    });
+
+    loan.next_due_date = nextDue;
     this.save();
     return loan;
   }

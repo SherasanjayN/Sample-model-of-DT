@@ -6,6 +6,22 @@ export type LoanStatus = 'PENDING_GROUP_ADMIN' | 'PENDING_SUPER_ADMIN' | 'APPROV
 
 export type PaymentMode = 'UPI' | 'CASH';
 
+export type RepaymentFrequency = 'WEEKLY' | 'MONTHLY';
+
+export interface RepaymentInstallment {
+  id: string;
+  installment_number: number;
+  due_date: string;
+  due_amount: number;
+  paid_amount: number;
+  paid_date?: string;
+  payment_mode?: PaymentMode;
+  status: 'PENDING' | 'PAID' | 'PARTIAL' | 'OVERDUE';
+  recorded_by_name?: string;
+  transaction_ref?: string;
+  note?: string;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -56,6 +72,13 @@ export interface Loan {
   status: LoanStatus;
   requested_at: string;
   status_history: LoanStatusEntry[];
+  repayment_frequency?: RepaymentFrequency;
+  tenure_period?: number;
+  installments?: RepaymentInstallment[];
+  total_paid?: number;
+  remaining_balance?: number;
+  next_due_date?: string;
+  sanction_date?: string;
 }
 
 export interface Message {

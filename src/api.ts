@@ -141,8 +141,29 @@ export const api = {
   getLoan: (id: string) =>
     request<Loan>(`/api/loans/${id}`),
 
-  submitLoanRequest: (body: { amount: number; payment_mode: 'UPI' | 'CASH'; upi_email?: string; purpose?: string }) =>
+  submitLoanRequest: (body: {
+    amount: number;
+    payment_mode: 'UPI' | 'CASH';
+    upi_email?: string;
+    purpose?: string;
+    repayment_frequency?: 'WEEKLY' | 'MONTHLY';
+    tenure_period?: number;
+  }) =>
     request<{ message: string; loan: Loan }>('/api/loans/request', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  recordLoanRepayment: (
+    loanId: string,
+    body: {
+      installment_number: number;
+      amount: number;
+      payment_mode: 'UPI' | 'CASH';
+      note?: string;
+    }
+  ) =>
+    request<{ message: string; loan: Loan }>(`/api/loans/${loanId}/repay`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),

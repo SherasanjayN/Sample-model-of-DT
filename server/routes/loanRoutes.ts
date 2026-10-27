@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db, Loan, LoanStatusEntry } from '../db';
+import { db, Loan, LoanStatusEntry, generateInstallments, RepaymentFrequency } from '../db';
 import { authenticate, requireRole, AuthRequest } from '../auth';
 import { sendLoanSanctionEmail } from '../emailService';
 
@@ -75,7 +75,7 @@ router.post('/request', authenticate, (req: AuthRequest, res) => {
     return;
   }
 
-  const { amount, payment_mode, upi_email, purpose } = req.body;
+  const { amount, payment_mode, upi_email, purpose, repayment_frequency, tenure_period } = req.body;
 
   // Validation: Amount must be number ≤ 10,000
   const parsedAmount = Number(amount);
@@ -94,6 +94,10 @@ router.post('/request', authenticate, (req: AuthRequest, res) => {
     res.status(400).json({ error: 'Disbursal mode must be either UPI or CASH.' });
     return;
   }
+
+  // Repayment model: WEEKLY vs MONTHLY
+  const freq: RepaymentFrequency = repayment_frequency === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY';
+  const tenure = Number(tenure_period) || (freq === 'WEEKLY' ? 10 : 6);
 
   // If UPI: require entering and verifying registered email ID
   if (payment_mode === 'UPI') {
@@ -116,7 +120,7 @@ router.post('/request', authenticate, (req: AuthRequest, res) => {
     updated_at: now,
     updated_by_name: user.name,
     updated_by_role: 'USER',
-    note: `Loan requested for ₹${parsedAmount.toLocaleString('en-IN')} via ${payment_mode}${
+    note: `Loan requested for ₹${parsedAmount.toLocaleString('en-IN')} via ${payment_mode} (${freq} repayment across ${tenure} cycles)${
       payment_mode === 'UPI' ? ' (UPI ID verified: ' + upi_email.trim() + ')' : ' (Cash at group meeting)'
     }${purpose ? ' - Purpose: ' + purpose.trim() : ''}`,
   };
@@ -136,6 +140,10 @@ router.post('/request', authenticate, (req: AuthRequest, res) => {
     status: 'PENDING_GROUP_ADMIN',
     requested_at: now,
     status_history: [initialHistory],
+    repayment_frequency: freq,
+    tenure_period: tenure,
+    total_paid: 0,
+    remaining_balance: parsedAmount,
   };
 
   db.addLoan(newLoan);
@@ -246,14 +254,21 @@ router.post('/:id/super-approve', authenticate, requireRole('SUPER_ADMIN'), asyn
     note: note ? note.trim() : 'Final loan sanction granted by Super Admin. Funds released for disbursal.',
   };
 
+  const installments = loan.installments && loan.installments.length > 0
+    ? loan.installments
+    : generateInstallments(loan.amount, loan.repayment_frequency || 'WEEKLY', loan.tenure_period);
+
   const updated = db.updateLoan(loan.id, {
     status: 'APPROVED',
+    sanction_date: now,
+    installments,
+    total_paid: loan.total_paid || 0,
+    remaining_balance: loan.remaining_balance !== undefined ? loan.remaining_balance : loan.amount,
+    next_due_date: installments[0]?.due_date,
     status_history: [...loan.status_history, historyEntry],
   });
 
   // Trigger real email notification per PRD:
-  // subject: 'Loan Sanctioned - Magalir Kuzhu Management System'
-  // body: 'Dear [User Name], Your loan request of ₹[Amount] has been sanctioned successfully!'
   let emailResult = null;
   try {
     emailResult = await sendLoanSanctionEmail({
@@ -299,6 +314,96 @@ router.post('/:id/super-reject', authenticate, requireRole('SUPER_ADMIN'), (req:
   res.json({
     message: 'Loan application was rejected by Super Admin.',
     loan: updated,
+  });
+});
+
+// POST /api/loans/:id/repay - Record installment repayment (Group Admin or Super Admin)
+router.post('/:id/repay', authenticate, requireRole('GROUP_ADMIN', 'SUPER_ADMIN'), (req: AuthRequest, res) => {
+  const loan = db.findLoanById(req.params.id);
+  if (!loan) {
+    res.status(404).json({ error: 'Loan not found.' });
+    return;
+  }
+
+  if (loan.status !== 'APPROVED') {
+    res.status(400).json({ error: 'Cannot record repayments on un-sanctioned loans.' });
+    return;
+  }
+
+  if (req.user?.role === 'GROUP_ADMIN' && req.user?.group_id !== loan.group_id) {
+    res.status(403).json({ error: 'You can only record repayments for members of your own group.' });
+    return;
+  }
+
+  const { installment_number, amount, payment_mode, note } = req.body;
+  const numInst = Number(installment_number);
+  const numAmount = Number(amount);
+
+  if (isNaN(numInst) || numInst <= 0) {
+    res.status(400).json({ error: 'Invalid installment cycle number.' });
+    return;
+  }
+
+  if (isNaN(numAmount) || numAmount <= 0) {
+    res.status(400).json({ error: 'Please enter a valid repayment amount.' });
+    return;
+  }
+
+  const mode = payment_mode === 'UPI' ? 'UPI' : 'CASH';
+
+  const updatedLoan = db.recordRepayment(loan.id, numInst, {
+    amount: numAmount,
+    mode,
+    recorded_by_name: req.user!.name,
+    note: note ? String(note).trim() : undefined,
+  });
+
+  if (!updatedLoan) {
+    res.status(400).json({ error: 'Failed to record installment payment.' });
+    return;
+  }
+
+  res.json({
+    message: `Payment of ₹${numAmount.toLocaleString('en-IN')} recorded successfully for Cycle #${numInst}.`,
+    loan: updatedLoan,
+  });
+});
+
+// GET /api/loans/:id/ledger - Get full repayment ledger
+router.get('/:id/ledger', authenticate, (req: AuthRequest, res) => {
+  const loan = db.findLoanById(req.params.id);
+  if (!loan) {
+    res.status(404).json({ error: 'Loan not found.' });
+    return;
+  }
+
+  if (
+    req.user?.role !== 'SUPER_ADMIN' &&
+    !(req.user?.role === 'GROUP_ADMIN' && req.user?.group_id === loan.group_id) &&
+    req.user?.id !== loan.user_id
+  ) {
+    res.status(403).json({ error: 'Access denied.' });
+    return;
+  }
+
+  // Ensure installments exist if approved
+  if (loan.status === 'APPROVED' && (!loan.installments || loan.installments.length === 0)) {
+    loan.installments = generateInstallments(loan.amount, loan.repayment_frequency || 'WEEKLY', loan.tenure_period);
+    loan.total_paid = 0;
+    loan.remaining_balance = loan.amount;
+    loan.next_due_date = loan.installments[0]?.due_date;
+    db.save();
+  }
+
+  res.json({
+    loan_id: loan.id,
+    user_name: loan.user_name,
+    amount: loan.amount,
+    frequency: loan.repayment_frequency || 'WEEKLY',
+    total_paid: loan.total_paid || 0,
+    remaining_balance: loan.remaining_balance !== undefined ? loan.remaining_balance : loan.amount,
+    next_due_date: loan.next_due_date,
+    installments: loan.installments || [],
   });
 });
 
