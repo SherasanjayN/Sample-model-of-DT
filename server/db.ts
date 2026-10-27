@@ -73,11 +73,28 @@ export interface EmailLog {
   to: string;
   subject: string;
   body: string;
+  html?: string;
   sent_at: string;
   status: 'SENT' | 'SIMULATED' | 'FAILED';
+  delivery_mode?: 'REAL_SMTP' | 'DEV_ETHEREAL' | 'SIMULATED';
   preview_url?: string;
   info?: string;
+  error_details?: string;
 }
+
+export interface SmtpConfig {
+  enabled: boolean;
+  provider: 'gmail' | 'custom' | 'ethereal';
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  from_name: string;
+  from_email: string;
+}
+
+export type CrisisType = 'HEALTH' | 'DOMESTIC' | 'ACCIDENT' | 'DISASTER' | 'OTHER';
 
 export interface SosAlert {
   id: string;
@@ -123,6 +140,7 @@ interface DatabaseSchema {
   emails: EmailLog[];
   sos_alerts: SosAlert[];
   meetings: MeetingRecord[];
+  smtp_config?: SmtpConfig;
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -155,6 +173,7 @@ class Database {
         this.data = JSON.parse(raw);
         if (!this.data.sos_alerts) this.data.sos_alerts = [];
         if (!this.data.meetings) this.data.meetings = [];
+        if (!this.data.emails) this.data.emails = [];
       } catch (err) {
         console.error('Failed to read db.json, creating fresh state', err);
         this.seedDefaults();
@@ -163,42 +182,39 @@ class Database {
       }
     } else {
       this.seedDefaults();
-      this.save();
     }
 
-    // Always ensure the Super Admin exists as required by PRD
     this.ensureSuperAdmin();
   }
 
   private seedDefaults() {
     const salt = bcrypt.genSaltSync(10);
     const superAdminPasswordHash = bcrypt.hashSync('Shera@0404', salt);
+    const groupAdminPasswordHash = bcrypt.hashSync('Group@123', salt);
     const memberPasswordHash = bcrypt.hashSync('Member@123', salt);
 
-    const now = new Date().toISOString();
-
     const superAdmin: User = {
-      id: 'usr_super_admin_1',
+      id: 'usr_super_admin_seed',
       name: 'Sanjay N (Super Admin)',
       phone: '9876543210',
       email: 'sherasanjayn@gmail.com',
-      area: 'Mylapore',
+      area: 'Chennai Central',
       district: 'Chennai',
       password_hash: superAdminPasswordHash,
       status: 'APPROVED',
       role: 'SUPER_ADMIN',
       group_id: null,
-      created_at: now,
+      created_at: new Date(Date.now() - 86400000 * 7).toISOString(),
     };
 
     const groupAdmin1: User = {
       id: 'usr_ga_1',
-      name: 'Kavitha Ramasamy',
+      name: 'Kavitha Ramasamy (Group Admin)',
       phone: '9840112233',
-      email: 'kavitha.shg@gmail.com',
+      email: 'kavitha.ga@gmail.com',
       area: 'Mylapore',
       district: 'Chennai',
-      password_hash: memberPasswordHash,
+      password_hash: groupAdminPasswordHash,
       status: 'APPROVED',
       role: 'GROUP_ADMIN',
       group_id: 'grp_myla_01',
@@ -207,7 +223,7 @@ class Database {
 
     const member1: User = {
       id: 'usr_mem_1',
-      name: 'Lakshmi Priya',
+      name: 'Lakshmi Priya (Member)',
       phone: '9840223344',
       email: 'lakshmi.priya@gmail.com',
       area: 'Mylapore',
@@ -221,12 +237,12 @@ class Database {
 
     const groupAdmin2: User = {
       id: 'usr_ga_2',
-      name: 'Meenakshi Sundaram',
+      name: 'Meena Sundaram (Group Admin)',
       phone: '9840334455',
-      email: 'meenakshi.mdu@gmail.com',
+      email: 'meena.madurai@gmail.com',
       area: 'Simmakkal',
       district: 'Madurai',
-      password_hash: memberPasswordHash,
+      password_hash: groupAdminPasswordHash,
       status: 'APPROVED',
       role: 'GROUP_ADMIN',
       group_id: 'grp_mdu_01',
@@ -350,7 +366,6 @@ class Database {
       });
       this.save();
     } else {
-      // Ensure super admin has proper role, status and updated password
       existing.role = 'SUPER_ADMIN';
       existing.status = 'APPROVED';
       existing.password_hash = superAdminPasswordHash;
@@ -391,7 +406,17 @@ class Database {
   }
 
   public getEmails(): EmailLog[] {
-    return this.data.emails;
+    return this.data.emails || [];
+  }
+
+  public getSmtpConfig(): SmtpConfig | undefined {
+    return this.data.smtp_config;
+  }
+
+  public setSmtpConfig(config: SmtpConfig): SmtpConfig {
+    this.data.smtp_config = config;
+    this.save();
+    return config;
   }
 
   // User methods
@@ -471,6 +496,7 @@ class Database {
 
   // Email logs
   public addEmailLog(log: EmailLog): EmailLog {
+    if (!this.data.emails) this.data.emails = [];
     this.data.emails.unshift(log);
     this.save();
     return log;

@@ -6,21 +6,22 @@ import { PendingScreen } from './components/PendingScreen';
 import { MemberDashboard } from './components/MemberDashboard';
 import { GroupAdminPanel } from './components/GroupAdminPanel';
 import { SuperAdminDashboard } from './components/SuperAdminDashboard';
-import { LanguageProvider } from './utils/translations';
+import { LanguageProvider, useLanguage } from './utils/translations';
 import { Users, Loader2 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
+  const { t } = useLanguage();
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-300">
-        <div className="w-12 h-12 rounded-2xl bg-emerald-600 flex items-center justify-center text-white mb-4 shadow-lg shadow-emerald-950/50">
-          <Users className="w-6 h-6" />
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-700">
+        <div className="w-14 h-14 rounded-2xl bg-emerald-600 flex items-center justify-center text-white mb-4 shadow-md shadow-emerald-600/20">
+          <Users className="w-7 h-7" />
         </div>
-        <div className="flex items-center space-x-2 text-sm font-medium">
-          <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-          <span>Loading Magalir Kuzhu Portal...</span>
+        <div className="flex items-center space-x-2 text-sm font-semibold text-emerald-800">
+          <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+          <span>{t.loading}</span>
         </div>
       </div>
     );
@@ -34,7 +35,7 @@ const AppContent: React.FC = () => {
   // Authenticated but registration is PENDING or REJECTED
   if (user.status === 'PENDING' || user.status === 'REJECTED') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+      <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col">
         <Header />
         <PendingScreen />
       </div>
@@ -43,20 +44,20 @@ const AppContent: React.FC = () => {
 
   // Approved User Routing based on Role
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col selection:bg-emerald-600 selection:text-white">
       <Header />
-      <main className="flex-1">
+      <main className="flex-1 pb-10">
         {user.role === 'SUPER_ADMIN' && <SuperAdminDashboard />}
         {user.role === 'GROUP_ADMIN' && <GroupAdminPanel />}
         {user.role === 'USER' && <MemberDashboard />}
       </main>
-      <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
+      <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-500 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div>
-            Magalir Kuzhu Management System · தமிழ்நாடு மகளிர் சுய உதவி குழு இணையம்
+          <div className="font-medium text-slate-700">
+            {t.systemTitle} · {t.tamilNaduTagline}
           </div>
-          <div className="text-slate-600">
-            Official 3-tier micro-loan sanction & SHG group coordination
+          <div className="text-slate-500">
+            {t.officialPortalSubtitle}
           </div>
         </div>
       </footer>

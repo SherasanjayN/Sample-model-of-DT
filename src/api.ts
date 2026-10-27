@@ -1,4 +1,15 @@
-import { User, Group, Loan, Message, Announcement, EmailLog, SosAlert, MeetingRecord } from './types';
+import {
+  User,
+  Group,
+  Loan,
+  Message,
+  Announcement,
+  EmailLog,
+  SosAlert,
+  MeetingRecord,
+  SmtpStatusResponse,
+  SmtpConfigInfo,
+} from './types';
 
 let currentToken: string | null = localStorage.getItem('mk_token');
 
@@ -182,12 +193,38 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  // Emails audit
+  // Emails audit & SMTP configuration
   getEmails: () =>
     request<EmailLog[]>('/api/emails'),
 
+  getSmtpConfig: () =>
+    request<SmtpStatusResponse>('/api/emails/smtp-config'),
+
+  saveSmtpConfig: (body: Partial<SmtpConfigInfo> & { pass?: string }) =>
+    request<{
+      message: string;
+      verified: boolean;
+      verification_message?: string;
+      verification_error?: string;
+      config: SmtpConfigInfo;
+    }>('/api/emails/smtp-config', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  verifySmtp: (body?: Partial<SmtpConfigInfo> & { pass?: string }) =>
+    request<{ success: boolean; message: string; error?: string }>('/api/emails/verify-smtp', {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+
+  resetSmtpToSandbox: () =>
+    request<{ message: string; active_mode: string }>('/api/emails/reset-smtp', {
+      method: 'POST',
+    }),
+
   sendTestEmail: (body: { to?: string; userName?: string; amount?: number }) =>
-    request<{ message: string; log: EmailLog }>('/api/emails/test', {
+    request<{ message: string; log: EmailLog; delivery_mode: string }>('/api/emails/test', {
       method: 'POST',
       body: JSON.stringify(body),
     }),

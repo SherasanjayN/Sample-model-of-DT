@@ -1,6 +1,9 @@
 export type Role = 'USER' | 'GROUP_ADMIN' | 'SUPER_ADMIN';
+
 export type UserStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
 export type LoanStatus = 'PENDING_GROUP_ADMIN' | 'PENDING_SUPER_ADMIN' | 'APPROVED' | 'REJECTED';
+
 export type PaymentMode = 'UPI' | 'CASH';
 
 export interface User {
@@ -78,10 +81,39 @@ export interface EmailLog {
   to: string;
   subject: string;
   body: string;
+  html?: string;
   sent_at: string;
   status: 'SENT' | 'SIMULATED' | 'FAILED';
+  delivery_mode?: 'REAL_SMTP' | 'DEV_ETHEREAL' | 'SIMULATED';
   preview_url?: string;
   info?: string;
+  error_details?: string;
+}
+
+export interface SmtpConfigInfo {
+  enabled: boolean;
+  provider: 'gmail' | 'custom' | 'ethereal';
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  has_password?: boolean;
+  from_name: string;
+  from_email: string;
+}
+
+export interface SmtpStatusResponse {
+  config: SmtpConfigInfo | null;
+  active_mode: 'REAL_SMTP' | 'DEV_ETHEREAL';
+  active_transport: {
+    mode: 'REAL_SMTP' | 'DEV_ETHEREAL';
+    provider: 'gmail' | 'custom' | 'ethereal';
+    user: string;
+    host: string;
+    port: number;
+    isConfigured: boolean;
+  };
+  is_configured: boolean;
 }
 
 export type CrisisType = 'HEALTH' | 'DOMESTIC' | 'ACCIDENT' | 'DISASTER' | 'OTHER';

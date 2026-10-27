@@ -211,8 +211,76 @@ if "db_sos" not in st.session_state:
 if "db_mom" not in st.session_state:
     st.session_state.db_mom = []
 
+if "db_repayments" not in st.session_state:
+    st.session_state.db_repayments = []
+
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
+
+# ---------------------------------------------------------
+# LOAN CALCULATION & REPAYMENT LEDGER ENGINE
+# ---------------------------------------------------------
+def calculate_loan_schedule(principal: float, frequency: str, cycles: int, annual_rate: float = 0.12):
+    """
+    Computes installment amount, total interest, and total repayable.
+    frequency: 'WEEKLY' (52 cycles/year) or 'MONTHLY' (12 cycles/year)
+    """
+    if frequency == "WEEKLY":
+        r = annual_rate / 52.0
+    else:
+        r = annual_rate / 12.0
+
+    if r == 0 or cycles <= 0:
+        installment = principal / max(1, cycles)
+    else:
+        installment = (principal * r * ((1 + r) ** cycles)) / (((1 + r) ** cycles) - 1)
+
+    installment = round(installment, 2)
+    total_repayable = round(installment * cycles, 2)
+    total_interest = round(total_repayable - principal, 2)
+    return {
+        "installment": installment,
+        "total_repayable": total_repayable,
+        "total_interest": total_interest
+    }
+
+def get_loan_ledger_summary(loan_id: str):
+    loan = next((l for l in st.session_state.db_loans if l["id"] == loan_id), None)
+    if not loan:
+        return None
+    payments = [p for p in st.session_state.db_repayments if p["loan_id"] == loan_id]
+    total_paid = sum(p["amount"] for p in payments)
+    total_repayable = loan.get("total_repayable", loan["amount"])
+    remaining = max(0.0, round(total_repayable - total_paid, 2))
+
+    # Calculate Next Due Date & Overdue Status
+    cycles_paid = len(payments)
+    freq = loan.get("repayment_frequency", "MONTHLY")
+    disbursed_dt_str = loan.get("disbursed_at") or loan.get("requested_at")
+    try:
+        from datetime import timedelta
+        base_dt = datetime.strptime(disbursed_dt_str.split()[0], "%Y-%m-%d")
+        if freq == "WEEKLY":
+            next_due = base_dt + timedelta(weeks=cycles_paid + 1)
+        else:
+            next_due = base_dt + timedelta(days=(cycles_paid + 1) * 30)
+    except Exception:
+        from datetime import timedelta
+        next_due = datetime.now() + timedelta(days=7 if freq == "WEEKLY" else 30)
+
+    is_overdue = datetime.now().date() > next_due.date() and remaining > 0
+    days_overdue = (datetime.now().date() - next_due.date()).days if is_overdue else 0
+
+    return {
+        "payments": payments,
+        "total_paid": round(total_paid, 2),
+        "remaining_balance": remaining,
+        "cycles_completed": cycles_paid,
+        "next_due_date": next_due.strftime("%Y-%m-%d"),
+        "is_overdue": is_overdue,
+        "days_overdue": max(0, days_overdue),
+        "is_cleared": remaining <= 0
+    }
 
 # ---------------------------------------------------------
 # TOP NAVIGATION & LANGUAGE TOGGLE
@@ -369,15 +437,20 @@ else:
                 st.write(f"**Applicant:** {l['user_name']} ({l['group_name']}) | Status: **{l['status']}**")
                 if l["status"] == "PENDING_SUPER_ADMIN":
                     if st.button(f"Grant Final Sanction (Dispatches Real Email)", key=f"sanct_{l['id']}"):
-                        l["status"] = "APPROVED"
+                        l["status"] = "SANCTIONED"
+                        l["sanctioned_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        l["disbursed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        sched = calculate_loan_schedule(l["amount"], l.get("repayment_frequency", "MONTHLY"), l.get("cycles", 6))
+                        l["total_repayable"] = sched["total_repayable"]
+                        l["cycle_installment"] = sched["installment"]
                         l["status_history"].append({
-                            "status": "APPROVED",
+                            "status": "SANCTIONED",
                             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
                             "by_name": user["name"],
                             "by_role": "SUPER_ADMIN",
-                            "note": "Sanction granted. Disbursal initiated."
+                            "note": f"Sanction granted. Disbursal initiated. Total repayable: ₹{sched['total_repayable']:,} ({l.get('repayment_frequency', 'MONTHLY')})"
                         })
-                        st.success(f"Loan #{l['id']} sanctioned! Notification email dispatched to {l['user_email']}.")
+                        st.success(f"Loan #{l['id']} SANCTIONED! Funds disbursed & notification email dispatched to {l['user_email']}.")
                         st.info(f"Subject: 'Loan Sanctioned - Magalir Kuzhu Management System'\n\nBody: 'Dear {l['user_name']}, Your loan request of ₹{l['amount']:,} has been sanctioned successfully!'")
                         st.rerun()
 
@@ -411,24 +484,111 @@ else:
     # APPROVED GROUP ADMIN
     elif user["role"] == "GROUP_ADMIN":
         st.markdown(f"## 👤 {t['group_admin']}")
-        ga_tab1, ga_tab2, ga_tab3, ga_tab4 = st.tabs(["Group Loan Review", t["meeting_minutes"], t["group_chat"], t["noticeboard"]])
+        ga_tab1, ga_tab_ledger, ga_tab2, ga_tab3, ga_tab4 = st.tabs([
+            "Group Loan Review", "📊 Repayment Ledger & Tracking", t["meeting_minutes"], t["group_chat"], t["noticeboard"]
+        ])
 
         with ga_tab1:
             grp_loans = [l for l in st.session_state.db_loans if l["group_id"] == user["group_id"]]
             st.write(f"### Review Applications ({len(grp_loans)})")
             for l in grp_loans:
-                st.write(f"**{l['user_name']}** requested **₹{l['amount']:,}** via {l['payment_mode']} | Status: **{l['status']}**")
+                st.write(f"**{l['user_name']}** requested **₹{l['amount']:,}** via {l['payment_mode']} ({l.get('repayment_frequency', 'MONTHLY')}) | Status: **{l['status']}**")
                 if l["status"] == "PENDING_GROUP_ADMIN":
                     c_appr, c_rej = st.columns(2)
                     with c_appr:
                         if st.button(f"Approve & Forward to Super Admin (#{l['id']})", key=f"ga_appr_{l['id']}"):
                             l["status"] = "PENDING_SUPER_ADMIN"
+                            l["status_history"].append({
+                                "status": "PENDING_SUPER_ADMIN",
+                                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "by_name": user["name"],
+                                "by_role": "GROUP_ADMIN",
+                                "note": "Verified by Group Admin. Forwarded to Super Admin."
+                            })
                             st.success("Forwarded to Super Admin for central sanction.")
                             st.rerun()
                     with c_rej:
                         if st.button(f"Reject (#{l['id']})", key=f"ga_rej_{l['id']}"):
                             l["status"] = "REJECTED"
                             st.rerun()
+
+        with ga_tab_ledger:
+            st.write("### 📊 Group Admin Repayment Ledger & Recovery Tracking")
+            sanctioned_loans = [l for l in st.session_state.db_loans if l["group_id"] == user["group_id"] and l["status"] in ["SANCTIONED", "APPROVED"]]
+            if not sanctioned_loans:
+                st.info("No active sanctioned loans currently running in this group.")
+            else:
+                loan_map = {f"#{l['id']} - {l['user_name']} (₹{l['amount']:,} - {l.get('repayment_frequency', 'WEEKLY')})": l["id"] for l in sanctioned_loans}
+                sel_loan_label = st.selectbox("Select Sanctioned Loan Account:", list(loan_map.keys()))
+                sel_loan_id = loan_map[sel_loan_label]
+                sel_loan = next(l for l in sanctioned_loans if l["id"] == sel_loan_id)
+
+                summary = get_loan_ledger_summary(sel_loan_id)
+
+                # Output metrics: Total Paid, Remaining Balance, Overdue / Next Due Date
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Principal Disbursed", f"₹{sel_loan['amount']:,}")
+                m2.metric("Total Paid Amount", f"₹{summary['total_paid']:,}")
+                m3.metric("Remaining Balance", f"₹{summary['remaining_balance']:,}")
+                if summary["is_overdue"]:
+                    m4.metric("Status: OVERDUE", f"{summary['days_overdue']} days", delta="-Overdue", delta_color="inverse")
+                elif summary["is_cleared"]:
+                    m4.metric("Status: FULLY REPAID", "Nil Balance", delta="Cleared")
+                else:
+                    m4.metric("Next Due Date", summary["next_due_date"], delta=sel_loan.get("repayment_frequency", "WEEKLY"))
+
+                st.divider()
+
+                # Dynamic week-by-week ledger entry form
+                st.write("#### ✍️ Record Repayment Entry")
+                with st.form(key=f"repay_form_{sel_loan_id}"):
+                    c_c1, c_c2, c_c3 = st.columns(3)
+                    with c_c1:
+                        cycle_num = st.number_input("Installment / Cycle # (e.g. Week 1, 2...)", min_value=1, value=summary["cycles_completed"] + 1)
+                    with c_c2:
+                        rec_amt = st.number_input("Amount Collected (₹)", min_value=100.0, value=float(sel_loan.get("cycle_installment", 500.0)), step=100.0)
+                    with c_c3:
+                        pay_date = st.date_input("Collection Date", value=datetime.now())
+                    pay_notes = st.text_input("Receipt / Meeting Remarks", value=f"Collected at SHG weekly meeting - Cycle {cycle_num}")
+                    btn_save_pay = st.form_submit_button("Record Payment in Ledger", type="primary")
+
+                    if btn_save_pay:
+                        st.session_state.db_repayments.append({
+                            "id": f"rep_{len(st.session_state.db_repayments)+1}",
+                            "loan_id": sel_loan_id,
+                            "user_id": sel_loan["user_id"],
+                            "user_name": sel_loan["user_name"],
+                            "cycle_number": cycle_num,
+                            "amount": rec_amt,
+                            "payment_date": pay_date.strftime("%Y-%m-%d"),
+                            "notes": pay_notes,
+                            "recorded_by": user["name"],
+                            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+                        })
+                        st.success(f"Payment of ₹{rec_amt:,} recorded for Cycle #{cycle_num}!")
+                        st.rerun()
+
+                # Render Ledger Table
+                st.write("#### 📜 Historical Ledger Entries")
+                if not summary["payments"]:
+                    st.caption("No payments recorded yet for this loan account.")
+                else:
+                    running_paid = 0.0
+                    ledger_rows = []
+                    total_rep = sel_loan.get("total_repayable", sel_loan["amount"])
+                    for p in summary["payments"]:
+                        running_paid += p["amount"]
+                        rem = max(0.0, round(total_rep - running_paid, 2))
+                        ledger_rows.append({
+                            "Cycle #": f"Cycle {p['cycle_number']}",
+                            "Date": p["payment_date"],
+                            "Amount Paid (₹)": f"₹{p['amount']:,}",
+                            "Cumulative Paid (₹)": f"₹{running_paid:,}",
+                            "Remaining Balance (₹)": f"₹{rem:,}",
+                            "Recorded By": p["recorded_by"],
+                            "Notes": p["notes"]
+                        })
+                    st.table(ledger_rows)
 
         with ga_tab2:
             st.write("### Record Weekly Meeting Minutes (MoM) & Export PDF")

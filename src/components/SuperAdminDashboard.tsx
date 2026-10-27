@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../utils/translations';
 import { api } from '../api';
-import { User, Group, Loan, Announcement, EmailLog } from '../types';
+import { User, Group, Loan, Announcement, EmailLog, SmtpStatusResponse } from '../types';
 import { LoanTimeline } from './LoanTimeline';
 import { GroupChat } from './GroupChat';
 import { AnnouncementsFeed } from './AnnouncementsFeed';
 import { SosAlertBanner } from './SosAlertBanner';
+import { EmailConfigModal } from './EmailConfigModal';
+import { EmailViewerModal } from './EmailViewerModal';
 import {
   ShieldCheck,
   Users,
@@ -26,8 +28,11 @@ import {
   IndianRupee,
   Send,
   MessageSquare,
-  AlertTriangle,
   ExternalLink,
+  X,
+  Settings,
+  Eye,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const SuperAdminDashboard: React.FC = () => {
@@ -44,6 +49,9 @@ export const SuperAdminDashboard: React.FC = () => {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [emails, setEmails] = useState<EmailLog[]>([]);
+  const [smtpStatus, setSmtpStatus] = useState<SmtpStatusResponse | null>(null);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [viewingEmail, setViewingEmail] = useState<EmailLog | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -80,13 +88,14 @@ export const SuperAdminDashboard: React.FC = () => {
   const fetchAllData = async () => {
     try {
       setLoading(true);
-      const [pendingRes, usersRes, groupsRes, loansRes, annRes, emailRes] = await Promise.all([
+      const [pendingRes, usersRes, groupsRes, loansRes, annRes, emailRes, smtpRes] = await Promise.all([
         api.getPendingUsers(),
         api.getUsers(),
         api.getGroups(),
         api.getLoans(),
         api.getAnnouncements(),
         api.getEmails(),
+        api.getSmtpConfig().catch(() => null),
       ]);
       setPendingUsers(pendingRes);
       setAllUsers(usersRes);
@@ -94,6 +103,7 @@ export const SuperAdminDashboard: React.FC = () => {
       setLoans(loansRes);
       setAnnouncements(annRes);
       setEmails(emailRes);
+      if (smtpRes) setSmtpStatus(smtpRes);
     } catch (err: any) {
       console.error('Error fetching admin data:', err);
     } finally {
@@ -144,10 +154,9 @@ export const SuperAdminDashboard: React.FC = () => {
     try {
       let finalGroupId = selectedGroupId;
 
-      // If creating new group
       if (isCreatingNewGroup) {
         if (!newGroupName.trim() || !newGroupArea.trim() || !newGroupDistrict.trim()) {
-          showToast('error', 'Please fill all group fields');
+          showToast('error', language === 'ta' ? 'அனைத்து குழு விவரங்களையும் உள்ளிடவும்' : 'Please fill all group fields');
           return;
         }
         const createdGroup = await api.createGroup({
@@ -164,7 +173,7 @@ export const SuperAdminDashboard: React.FC = () => {
         is_group_admin: designateGroupAdmin,
       });
 
-      showToast('success', `Approved ${approvingUser.name} and allocated to group!`);
+      showToast('success', `${approvingUser.name} - ${language === 'ta' ? 'ஒப்புதல் அளிக்கப்பட்டு குழு ஒதுக்கப்பட்டது!' : 'Approved and allocated to group!'}`);
       setApprovingUser(null);
       await fetchAllData();
     } catch (err: any) {
@@ -174,26 +183,26 @@ export const SuperAdminDashboard: React.FC = () => {
 
   // Reject User
   const handleRejectUser = async (userId: string, userName: string) => {
-    if (!confirm(`Are you sure you want to reject ${userName}?`)) return;
+    if (!confirm(language === 'ta' ? `${userName} விண்ணப்பத்தை நிராகரிக்க உறுதியாக உள்ளீர்களா?` : `Are you sure you want to reject ${userName}?`)) return;
     try {
       await api.rejectUser(userId);
-      showToast('success', `Application for ${userName} rejected`);
+      showToast('success', `${userName} - ${language === 'ta' ? 'விண்ணப்பம் நிராகரிக்கப்பட்டது' : 'Application rejected'}`);
       await fetchAllData();
     } catch (err: any) {
       showToast('error', err.message || 'Failed to reject user');
     }
   };
 
-  // Loan Final Sanction (Super Admin) - Triggers real email notification!
+  // Loan Final Sanction (Super Admin) - Triggers real email notification
   const handleSuperApproveLoan = async (loan: Loan) => {
     try {
       setActionLoading(loan.id);
-      const note = sanctionNote[loan.id] || 'Final loan sanction approved by Super Admin.';
-      const res = await api.superApproveLoan(loan.id, note);
+      const note = sanctionNote[loan.id] || (language === 'ta' ? 'முதன்மை நிர்வாகியால் இறுதி கடன் ஒப்புதல் அளிக்கப்பட்டது.' : 'Final loan sanction approved by Super Admin.');
+      await api.superApproveLoan(loan.id, note);
 
       showToast(
         'success',
-        `Loan sanctioned! Email notice dispatched to ${loan.user_email} (Subject: "Loan Sanctioned - Magalir Kuzhu Management System")`
+        `${language === 'ta' ? 'கடன் ஒப்புதல் அளிக்கப்பட்டது! மின்னஞ்சல் அனுப்பப்பட்டது:' : 'Loan sanctioned! Email notice dispatched to'} ${loan.user_email}`
       );
       await fetchAllData();
     } catch (err: any) {
@@ -207,9 +216,9 @@ export const SuperAdminDashboard: React.FC = () => {
   const handleSuperRejectLoan = async (loan: Loan) => {
     try {
       setActionLoading(loan.id);
-      const note = sanctionNote[loan.id] || 'Application rejected by Super Admin during central verification.';
+      const note = sanctionNote[loan.id] || (language === 'ta' ? 'முதன்மை நிர்வாகியால் சரிபார்ப்பின் போது நிராகரிக்கப்பட்டது.' : 'Application rejected by Super Admin during central verification.');
       await api.superRejectLoan(loan.id, note);
-      showToast('success', `Loan application for ${loan.user_name} rejected.`);
+      showToast('success', `${loan.user_name} - ${language === 'ta' ? 'கடன் நிராகரிக்கப்பட்டது.' : 'Loan application rejected.'}`);
       await fetchAllData();
     } catch (err: any) {
       showToast('error', `Failed to reject loan: ${err.message}`);
@@ -229,7 +238,7 @@ export const SuperAdminDashboard: React.FC = () => {
         title: annTitle.trim(),
         message: annMessage.trim(),
       });
-      showToast('success', 'Announcement broadcasted to all users!');
+      showToast('success', language === 'ta' ? 'அனைத்து உறுப்பினர்களுக்கும் பொது அறிவிப்பு வெளியிடப்பட்டது!' : 'Announcement broadcasted to all users!');
       setAnnTitle('');
       setAnnMessage('');
       await fetchAllData();
@@ -240,39 +249,20 @@ export const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  // Designate Group Admin for a group
-  const handleSetGroupAdmin = async (groupId: string, userId: string) => {
-    try {
-      await api.setGroupAdmin(groupId, userId);
-      showToast('success', 'Group Admin updated successfully');
-      await fetchAllData();
-    } catch (err: any) {
-      showToast('error', err.message || 'Failed to update Group Admin');
-    }
-  };
-
-  // Calculate high level metrics
+  // Filter calculations
   const pendingSuperAdminLoans = loans.filter((l) => l.status === 'PENDING_SUPER_ADMIN');
   const approvedLoans = loans.filter((l) => l.status === 'APPROVED');
-  const totalSanctionedAmount = approvedLoans.reduce((sum, l) => sum + l.amount, 0);
+  const totalSanctionedAmount = approvedLoans.reduce((acc, l) => acc + l.amount, 0);
 
-  // Filtered users
   const filteredUsers = allUsers.filter((u) => {
-    if (userStatusFilter !== 'ALL' && u.status !== userStatusFilter) return false;
-    if (userSearch) {
-      const q = userSearch.toLowerCase();
-      return (
-        u.name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        u.phone.includes(q) ||
-        u.area.toLowerCase().includes(q) ||
-        u.district.toLowerCase().includes(q)
-      );
-    }
-    return true;
+    const matchesSearch =
+      u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.phone.includes(userSearch);
+    const matchesStatus = userStatusFilter === 'ALL' || u.status === userStatusFilter;
+    return matchesSearch && matchesStatus;
   });
 
-  // Filtered loans
   const filteredLoans = loans.filter((l) => {
     if (loanFilter === 'ALL') return true;
     return l.status === loanFilter;
@@ -280,17 +270,17 @@ export const SuperAdminDashboard: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      {/* Toast banner */}
+      {/* Toast Notification */}
       {toastMessage && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between text-xs font-medium shadow-lg transition-all ${
+          className={`p-3.5 rounded-xl border text-xs font-bold flex items-center justify-between shadow-md ${
             toastMessage.type === 'success'
-              ? 'bg-emerald-900/90 border-emerald-500 text-emerald-100'
-              : 'bg-rose-900/90 border-rose-500 text-rose-100'
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+              : 'bg-rose-50 border-rose-300 text-rose-900'
           }`}
         >
           <span>{toastMessage.text}</span>
-          <button onClick={() => setToastMessage(null)} className="ml-4 font-bold text-white">
+          <button onClick={() => setToastMessage(null)} className="font-extrabold text-sm ml-2">
             ✕
           </button>
         </div>
@@ -299,19 +289,20 @@ export const SuperAdminDashboard: React.FC = () => {
       {/* High-priority Emergency SOS Alert Banner */}
       <SosAlertBanner onResolved={fetchAllData} />
 
-      {/* Top Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-slate-700/80 rounded-2xl p-6 shadow-md">
+      {/* Top Banner - White with Green Theme */}
+      <div className="bg-white border border-emerald-200 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center space-x-2 text-xs text-amber-400 font-semibold uppercase tracking-wider">
-              <ShieldCheck className="w-4 h-4" />
-              <span>Super Administrator Master Console</span>
+            <div className="flex items-center space-x-2 text-xs text-amber-800 font-bold uppercase tracking-wider">
+              <ShieldCheck className="w-4 h-4 text-amber-600" />
+              <span>{t.superAdminMasterTitle}</span>
             </div>
-            <h1 className="text-2xl font-bold text-white mt-1">
-              Magalir Kuzhu Central Operations
+            <h1 className="text-2xl font-extrabold text-slate-900 mt-1">
+              {t.systemTitle}
             </h1>
-            <p className="text-xs text-slate-300 mt-1">
-              Logged in as <span className="font-semibold text-white">{user?.email}</span> (Master Account)
+            <p className="text-xs text-slate-600 mt-1">
+              {language === 'ta' ? 'முதன்மை கணக்கு:' : 'Logged in as'}{' '}
+              <span className="font-bold text-slate-900">{user?.email}</span> ({t.roleSuperAdmin})
             </p>
           </div>
 
@@ -319,128 +310,136 @@ export const SuperAdminDashboard: React.FC = () => {
             <button
               onClick={fetchAllData}
               disabled={loading}
-              className="flex items-center space-x-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-xl border border-slate-700 transition-colors"
+              className="flex items-center space-x-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl border border-slate-300 transition-colors"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span>Sync System Data</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-emerald-600' : ''}`} />
+              <span>{t.refresh}</span>
             </button>
           </div>
         </div>
 
         {/* Overview Stat Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-800">
-          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-            <div className="text-slate-400 text-xs font-medium">Pending Registrations</div>
-            <div className="text-2xl font-bold text-amber-400 mt-1 flex items-center justify-between">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-100">
+          <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-4">
+            <div className="text-amber-800 text-xs font-bold">{t.metricPendingApprovals}</div>
+            <div className="text-2xl font-extrabold text-amber-900 mt-1 flex items-center justify-between">
               <span>{pendingUsers.length}</span>
-              <Clock className="w-5 h-5 text-amber-400/50" />
+              <Clock className="w-5 h-5 text-amber-600" />
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">Awaiting group allocation</div>
+            <div className="text-[11px] text-amber-700 mt-1">
+              {language === 'ta' ? 'குழு ஒதுக்கீட்டிற்கு காத்திருப்போர்' : 'Awaiting group allocation'}
+            </div>
           </div>
 
-          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-            <div className="text-slate-400 text-xs font-medium">Loans Needing Sanction</div>
-            <div className="text-2xl font-bold text-blue-400 mt-1 flex items-center justify-between">
+          <div className="bg-sky-50/60 border border-sky-200 rounded-xl p-4">
+            <div className="text-sky-800 text-xs font-bold">{t.metricLoanQueue}</div>
+            <div className="text-2xl font-extrabold text-sky-900 mt-1 flex items-center justify-between">
               <span>{pendingSuperAdminLoans.length}</span>
-              <CreditCard className="w-5 h-5 text-blue-400/50" />
+              <CreditCard className="w-5 h-5 text-sky-600" />
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">Tier-2 central clearance</div>
+            <div className="text-[11px] text-sky-700 mt-1">
+              {language === 'ta' ? 'இறுதி ஒப்புதல் தேவை' : 'Tier-2 central clearance'}
+            </div>
           </div>
 
-          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-            <div className="text-slate-400 text-xs font-medium">Active Groups</div>
-            <div className="text-2xl font-bold text-emerald-400 mt-1 flex items-center justify-between">
+          <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4">
+            <div className="text-emerald-800 text-xs font-bold">{t.metricActiveGroups}</div>
+            <div className="text-2xl font-extrabold text-emerald-900 mt-1 flex items-center justify-between">
               <span>{groups.length}</span>
-              <Building className="w-5 h-5 text-emerald-400/50" />
+              <Building className="w-5 h-5 text-emerald-600" />
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">Across various districts</div>
+            <div className="text-[11px] text-emerald-700 mt-1">
+              {language === 'ta' ? 'பல்வேறு மாவட்டங்களில்' : 'Across various districts'}
+            </div>
           </div>
 
-          <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
-            <div className="text-slate-400 text-xs font-medium">Total Sanctioned Disbursals</div>
-            <div className="text-2xl font-bold text-white mt-1 flex items-center justify-between">
+          <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4">
+            <div className="text-emerald-800 text-xs font-bold">{language === 'ta' ? 'வழங்கப்பட்ட மொத்த கடன்' : 'Total Sanctioned Disbursals'}</div>
+            <div className="text-2xl font-extrabold text-emerald-900 mt-1 flex items-center justify-between">
               <span>₹{totalSanctionedAmount.toLocaleString('en-IN')}</span>
-              <IndianRupee className="w-5 h-5 text-emerald-400/50" />
+              <IndianRupee className="w-5 h-5 text-emerald-600" />
             </div>
-            <div className="text-[11px] text-slate-500 mt-1">{approvedLoans.length} loans sanctioned</div>
+            <div className="text-[11px] text-emerald-700 mt-1">
+              {approvedLoans.length} {language === 'ta' ? 'கடன்கள் வழங்கப்பட்டன' : 'loans sanctioned'}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-1 border-b border-slate-800 pb-2">
+      {/* Navigation Tabs */}
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
         <button
           onClick={() => setActiveTab('pending')}
-          className={`flex items-center space-x-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+          className={`flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
             activeTab === 'pending'
-              ? 'bg-emerald-600 text-white shadow'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
           }`}
         >
           <Clock className="w-4 h-4" />
-          <span>Pending Approvals ({pendingUsers.length})</span>
+          <span>{t.pendingRegistrationsTab} ({pendingUsers.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('loans')}
-          className={`flex items-center space-x-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+          className={`flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
             activeTab === 'loans'
-              ? 'bg-emerald-600 text-white shadow'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
           }`}
         >
           <CreditCard className="w-4 h-4" />
           <span>
-            3-Tier Loan Approvals ({pendingSuperAdminLoans.length} Ready for Sanction)
+            {t.loanSanctionTab} ({pendingSuperAdminLoans.length})
           </span>
         </button>
 
         <button
           onClick={() => setActiveTab('users')}
-          className={`flex items-center space-x-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+          className={`flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
             activeTab === 'users'
-              ? 'bg-emerald-600 text-white shadow'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>All Users & Roles ({allUsers.length})</span>
+          <span>{t.registeredUsersTab} ({allUsers.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('groups')}
-          className={`flex items-center space-x-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+          className={`flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
             activeTab === 'groups'
-              ? 'bg-emerald-600 text-white shadow'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
           }`}
         >
           <Building className="w-4 h-4" />
-          <span>Groups & Chat Rooms ({groups.length})</span>
+          <span>{t.groupsDirectoryTab} ({groups.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('announcements')}
-          className={`flex items-center space-x-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+          className={`flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
             activeTab === 'announcements'
-              ? 'bg-emerald-600 text-white shadow'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
           }`}
         >
           <Bell className="w-4 h-4" />
-          <span>Broadcast Announcements</span>
+          <span>{t.broadcastTab}</span>
         </button>
 
         <button
           onClick={() => setActiveTab('emails')}
-          className={`flex items-center space-x-2 px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+          className={`flex items-center space-x-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
             activeTab === 'emails'
-              ? 'bg-emerald-600 text-white shadow'
-              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50'
           }`}
         >
           <Mail className="w-4 h-4" />
-          <span>Email Sanction Audit Log ({emails.length})</span>
+          <span>{t.emailAuditTab} ({emails.length})</span>
         </button>
       </div>
 
@@ -449,56 +448,60 @@ export const SuperAdminDashboard: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-semibold text-white">
-                Pending Member Registrations ({pendingUsers.length})
+              <h2 className="text-base font-bold text-slate-900">
+                {t.pendingRegistrationsTab} ({pendingUsers.length})
               </h2>
-              <p className="text-xs text-slate-400">
-                Review applicant credentials, auto-suggest groups by Area & District, and allocate members.
+              <p className="text-xs text-slate-500">
+                {language === 'ta'
+                  ? 'விண்ணப்பதாரர் விவரங்களை சரிபார்த்து பகுதி மற்றும் மாவட்டத்தின் அடிப்படையில் குழுவை ஒதுக்குக.'
+                  : 'Review applicant credentials, auto-suggest groups by Area & District, and allocate members.'}
               </p>
             </div>
           </div>
 
           {pendingUsers.length === 0 ? (
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-10 text-center text-slate-400 text-xs">
-              <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-              All registration applications have been reviewed and allocated!
+            <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-500 text-xs shadow-xs">
+              <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
+              <div className="font-bold text-slate-800 text-sm">
+                {language === 'ta' ? 'அனைத்து புதிய பதிவுகளும் ஒதுக்கப்பட்டுவிட்டன!' : 'All registration applications have been reviewed and allocated!'}
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {pendingUsers.map((applicant) => (
                 <div
                   key={applicant.id}
-                  className="bg-slate-900 border border-amber-500/30 rounded-xl p-5 shadow-sm space-y-4"
+                  className="bg-white border-2 border-amber-300 rounded-2xl p-5 shadow-xs space-y-4"
                 >
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="text-base font-bold text-white">{applicant.name}</h3>
-                      <div className="flex items-center space-x-2 text-xs text-slate-400 mt-1">
-                        <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                      <h3 className="text-base font-extrabold text-slate-900">{applicant.name}</h3>
+                      <div className="flex items-center space-x-2 text-xs text-slate-600 mt-1">
+                        <Phone className="w-3.5 h-3.5 text-emerald-600" />
                         <span>{applicant.phone}</span>
-                        <span className="text-slate-600">·</span>
-                        <Mail className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-slate-300">·</span>
+                        <Mail className="w-3.5 h-3.5 text-emerald-600" />
                         <span>{applicant.email}</span>
                       </div>
                     </div>
-                    <span className="text-xs px-2.5 py-0.5 rounded font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      PENDING
+                    <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                      {language === 'ta' ? 'பரிசீலனையில்' : 'PENDING'}
                     </span>
                   </div>
 
-                  <div className="p-3 bg-slate-800/80 rounded-lg border border-slate-700/80 text-xs space-y-1">
-                    <div className="text-slate-300 flex items-center">
-                      <MapPin className="w-3.5 h-3.5 mr-1.5 text-slate-400" />
-                      <span className="text-slate-400 mr-1">Registered Area:</span>
-                      <span className="font-semibold text-white">{applicant.area}</span>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+                    <div className="text-slate-700 flex items-center">
+                      <MapPin className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                      <span className="text-slate-500 mr-1">{t.areaLocality}:</span>
+                      <span className="font-bold text-slate-900">{applicant.area}</span>
                     </div>
-                    <div className="text-slate-300 flex items-center">
-                      <Building className="w-3.5 h-3.5 mr-1.5 text-slate-400" />
-                      <span className="text-slate-400 mr-1">District:</span>
-                      <span className="font-semibold text-white">{applicant.district}</span>
+                    <div className="text-slate-700 flex items-center">
+                      <Building className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                      <span className="text-slate-500 mr-1">{t.district}:</span>
+                      <span className="font-bold text-slate-900">{applicant.district}</span>
                     </div>
-                    <div className="text-slate-400 text-[11px] pt-1 border-t border-slate-700">
-                      Applied on{' '}
+                    <div className="text-slate-500 text-[11px] pt-1 border-t border-slate-200">
+                      {language === 'ta' ? 'விண்ணப்பிக்கப்பட்ட நாள்:' : 'Applied on:'}{' '}
                       {new Date(applicant.created_at).toLocaleDateString('en-IN', {
                         day: 'numeric',
                         month: 'short',
@@ -510,16 +513,16 @@ export const SuperAdminDashboard: React.FC = () => {
                   <div className="flex items-center space-x-3 pt-2">
                     <button
                       onClick={() => handleOpenApproveModal(applicant)}
-                      className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow inline-flex items-center justify-center space-x-1.5 transition-colors"
+                      className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs inline-flex items-center justify-center space-x-1.5 transition-colors"
                     >
                       <UserCheck className="w-3.5 h-3.5" />
-                      <span>Review & Auto-Suggest Group</span>
+                      <span>{t.approveMemberButton}</span>
                     </button>
                     <button
                       onClick={() => handleRejectUser(applicant.id, applicant.name)}
-                      className="py-2 px-3 bg-slate-800 hover:bg-rose-900/40 text-rose-300 hover:text-rose-200 border border-slate-700 hover:border-rose-500/50 text-xs font-medium rounded-lg transition-colors"
+                      className="py-2 px-3 bg-slate-50 hover:bg-rose-50 text-rose-700 border border-slate-300 hover:border-rose-300 text-xs font-bold rounded-xl transition-colors"
                     >
-                      Reject
+                      {t.rejectMemberButton}
                     </button>
                   </div>
                 </div>
@@ -534,122 +537,123 @@ export const SuperAdminDashboard: React.FC = () => {
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-white">
-                3-Tier Micro-Loan Sanctions Hub
+              <h2 className="text-base font-bold text-slate-900">
+                {t.threeTierLoans}
               </h2>
-              <p className="text-xs text-slate-400">
-                Loans capped at ₹10,000. Super Admin final sanction automatically triggers real notification email.
+              <p className="text-xs text-slate-500">
+                {language === 'ta'
+                  ? 'கடன்கள் ₹10,000 வரை வரம்பிடப்பட்டது. முதன்மை நிர்வாகியின் இறுதி ஒப்புதல் தானியங்கி மின்னஞ்சலை உடனடியாக அனுப்பும்.'
+                  : 'Loans capped at ₹10,000. Super Admin final sanction automatically triggers real notification email.'}
               </p>
             </div>
 
             {/* Filter buttons */}
-            <div className="flex flex-wrap gap-1 bg-slate-800 p-1 rounded-lg border border-slate-700">
+            <div className="flex flex-wrap gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
               <button
                 onClick={() => setLoanFilter('PENDING_SUPER_ADMIN')}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
                   loanFilter === 'PENDING_SUPER_ADMIN'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-300 hover:text-white'
+                    ? 'bg-sky-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Needs Final Sanction ({pendingSuperAdminLoans.length})
+                {language === 'ta' ? 'இறுதி அனுமதி தேவை' : 'Needs Final Sanction'} ({pendingSuperAdminLoans.length})
               </button>
               <button
                 onClick={() => setLoanFilter('PENDING_GROUP_ADMIN')}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
                   loanFilter === 'PENDING_GROUP_ADMIN'
-                    ? 'bg-amber-600 text-white'
-                    : 'text-slate-300 hover:text-white'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                At Group Admin Tier
+                {t.loanStatusPendingGroupAdmin}
               </button>
               <button
                 onClick={() => setLoanFilter('APPROVED')}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
                   loanFilter === 'APPROVED'
-                    ? 'bg-emerald-600 text-white'
-                    : 'text-slate-300 hover:text-white'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Sanctioned ({approvedLoans.length})
+                {t.loanStatusApproved} ({approvedLoans.length})
               </button>
               <button
                 onClick={() => setLoanFilter('ALL')}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
                   loanFilter === 'ALL'
-                    ? 'bg-slate-700 text-white'
-                    : 'text-slate-300 hover:text-white'
+                    ? 'bg-slate-700 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                All Loans ({loans.length})
+                {t.allStatuses} ({loans.length})
               </button>
             </div>
           </div>
 
           {filteredLoans.length === 0 ? (
-            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-8 text-center text-slate-400 text-xs">
-              No loan applications found matching selected filter.
+            <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-400 text-xs shadow-xs">
+              {language === 'ta' ? 'தேர்ந்தெடுக்கப்பட்ட வடிகட்டலில் கடன்கள் எதுவும் இல்லை.' : 'No loan applications found matching selected filter.'}
             </div>
           ) : (
             <div className="space-y-4">
               {filteredLoans.map((loan) => (
                 <div
                   key={loan.id}
-                  className={`p-5 rounded-xl bg-slate-900 border shadow-md space-y-4 ${
+                  className={`p-5 rounded-2xl bg-white border shadow-xs space-y-4 ${
                     loan.status === 'PENDING_SUPER_ADMIN'
-                      ? 'border-blue-500/50 ring-1 ring-blue-500/20'
-                      : 'border-slate-800'
+                      ? 'border-sky-400 ring-2 ring-sky-100'
+                      : 'border-slate-200'
                   }`}
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
                     <div>
                       <div className="flex items-center space-x-2">
-                        <span className="text-lg font-bold text-white flex items-center">
-                          <IndianRupee className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xl font-extrabold text-slate-900 flex items-center">
+                          <IndianRupee className="w-5 h-5 text-emerald-600" />
                           {loan.amount.toLocaleString('en-IN')}
                         </span>
-                        <span className="text-xs px-2 py-0.5 rounded font-medium bg-slate-800 text-slate-300 border border-slate-700">
-                          Mode: {loan.payment_mode}
+                        <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                          {loan.payment_mode === 'UPI' ? t.modeUpi : t.modeCash}
                         </span>
                         {loan.status === 'PENDING_SUPER_ADMIN' && (
-                          <span className="text-xs px-2 py-0.5 rounded font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 animate-pulse">
-                            Action Needed: Final Sanction
+                          <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-sky-100 text-sky-900 border border-sky-300 animate-pulse">
+                            {language === 'ta' ? 'இறுதி ஒப்புதல் அளிக்க தயார்' : 'Action Needed: Final Sanction'}
                           </span>
                         )}
                         {loan.status === 'APPROVED' && (
-                          <span className="text-xs px-2 py-0.5 rounded font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                            SANCTIONED & DISPATCHED
+                          <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                            {t.loanStatusApproved}
                           </span>
                         )}
                         {loan.status === 'PENDING_GROUP_ADMIN' && (
-                          <span className="text-xs px-2 py-0.5 rounded font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                            Awaiting Group Admin Review
+                          <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            {t.loanStatusPendingGroupAdmin}
                           </span>
                         )}
                         {loan.status === 'REJECTED' && (
-                          <span className="text-xs px-2 py-0.5 rounded font-medium bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                            REJECTED
+                          <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                            {t.loanStatusRejected}
                           </span>
                         )}
                       </div>
 
-                      <div className="text-xs text-slate-300 mt-1 font-semibold">
-                        Applicant: {loan.user_name} · Group: {loan.group_name}
+                      <div className="text-xs text-slate-800 mt-1 font-bold">
+                        {loan.user_name} · {loan.group_name}
                       </div>
-                      <div className="text-xs text-slate-400 mt-0.5">
-                        Phone: {loan.user_phone} · Email: {loan.user_email}{' '}
-                        {loan.upi_email && `· Verified UPI Email: ${loan.upi_email}`}
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {t.phone}: {loan.user_phone} · {t.emailAddress}: {loan.user_email}{' '}
+                        {loan.upi_email && `· UPI Email: ${loan.upi_email}`}
                       </div>
                       {loan.purpose && (
-                        <div className="text-xs text-slate-400 mt-1 italic">
-                          Purpose: "{loan.purpose}"
+                        <div className="text-xs text-slate-600 mt-1 italic font-medium">
+                          {t.loanPurpose}: "{loan.purpose}"
                         </div>
                       )}
                     </div>
 
-                    <div className="text-right text-[11px] text-slate-500">
-                      Applied:{' '}
+                    <div className="text-right text-[11px] text-slate-400 font-medium">
                       {new Date(loan.requested_at).toLocaleString('en-IN', {
                         month: 'short',
                         day: 'numeric',
@@ -661,10 +665,10 @@ export const SuperAdminDashboard: React.FC = () => {
 
                   {/* Super Admin Action Controls */}
                   {loan.status === 'PENDING_SUPER_ADMIN' && (
-                    <div className="bg-slate-800/80 p-3.5 rounded-lg border border-blue-500/30 space-y-3">
+                    <div className="bg-sky-50/60 p-4 rounded-xl border border-sky-200 space-y-3">
                       <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">
-                          Super Admin Sanction Remark (Recorded in audit history):
+                        <label className="block text-xs font-bold text-sky-950 mb-1">
+                          {language === 'ta' ? 'முதன்மை நிர்வாகி ஒப்புதல் குறிப்பு:' : 'Super Admin Sanction Remark (Recorded in audit history):'}
                         </label>
                         <input
                           type="text"
@@ -672,8 +676,8 @@ export const SuperAdminDashboard: React.FC = () => {
                           onChange={(e) =>
                             setSanctionNote({ ...sanctionNote, [loan.id]: e.target.value })
                           }
-                          placeholder="e.g. Micro-loan sanctioned under credit policy. Disbursal initiated."
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          placeholder={language === 'ta' ? 'எ.கா: கொள்கையின்படி கடன் ஒப்புதல் அளிக்கப்பட்டது. நிதி விடுவிக்கப்பட்டது.' : 'e.g. Micro-loan sanctioned under credit policy. Disbursal initiated.'}
+                          className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
                       </div>
 
@@ -681,23 +685,23 @@ export const SuperAdminDashboard: React.FC = () => {
                         <button
                           onClick={() => handleSuperApproveLoan(loan)}
                           disabled={actionLoading === loan.id}
-                          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow inline-flex items-center space-x-2 transition-colors disabled:opacity-50"
+                          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs inline-flex items-center space-x-2 transition-colors disabled:opacity-50"
                         >
                           <CheckCircle2 className="w-4 h-4" />
                           <span>
                             {actionLoading === loan.id
-                              ? 'Sanctioning & Sending Email...'
-                              : 'Grant Final Sanction (Fires Real Email)'}
+                              ? t.sanctioningAction
+                              : t.confirmSanctionAndSendEmail}
                           </span>
                         </button>
 
                         <button
                           onClick={() => handleSuperRejectLoan(loan)}
                           disabled={actionLoading === loan.id}
-                          className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-lg shadow inline-flex items-center space-x-1.5 transition-colors disabled:opacity-50"
+                          className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl border border-rose-300 inline-flex items-center space-x-1.5 transition-colors disabled:opacity-50"
                         >
                           <XCircle className="w-4 h-4" />
-                          <span>Reject Application</span>
+                          <span>{t.rejectLoan}</span>
                         </button>
                       </div>
                     </div>
@@ -713,12 +717,12 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* TAB 3: ALL USERS & ROLES */}
       {activeTab === 'users' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="text-base font-semibold text-white">Registered Users Directory</h3>
-              <p className="text-xs text-slate-400">
-                Manage roles, designated group admins, and member allocations.
+              <h2 className="text-base font-bold text-slate-900">{t.allUsers}</h2>
+              <p className="text-xs text-slate-500">
+                {language === 'ta' ? 'பொறுப்புகள் மற்றும் குழு தலைவி ஒதுக்கீட்டை நிர்வகிக்கவும்.' : 'Manage roles, designated group admins, and member allocations.'}
               </p>
             </div>
 
@@ -729,74 +733,74 @@ export const SuperAdminDashboard: React.FC = () => {
                   type="text"
                   value={userSearch}
                   onChange={(e) => setUserSearch(e.target.value)}
-                  placeholder="Search members..."
-                  className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder={t.searchUsers}
+                  className="pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
               <select
                 value={userStatusFilter}
                 onChange={(e: any) => setUserStatusFilter(e.target.value)}
-                className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none"
+                className="bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none"
               >
-                <option value="ALL">All Statuses</option>
-                <option value="APPROVED">Approved</option>
-                <option value="PENDING">Pending</option>
-                <option value="REJECTED">Rejected</option>
+                <option value="ALL">{t.allStatuses}</option>
+                <option value="APPROVED">{language === 'ta' ? 'அங்கீகரிக்கப்பட்டது' : 'Approved'}</option>
+                <option value="PENDING">{language === 'ta' ? 'நிலுவையில்' : 'Pending'}</option>
+                <option value="REJECTED">{language === 'ta' ? 'நிராகரிக்கப்பட்டது' : 'Rejected'}</option>
               </select>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-800/80 text-slate-300 font-semibold border-b border-slate-700">
+              <thead className="bg-emerald-50 text-emerald-950 font-bold border-b border-emerald-100">
                 <tr>
-                  <th className="py-2.5 px-3">Member Name</th>
-                  <th className="py-2.5 px-3">Contact</th>
-                  <th className="py-2.5 px-3">Area & District</th>
-                  <th className="py-2.5 px-3">Assigned Group</th>
-                  <th className="py-2.5 px-3">Role</th>
-                  <th className="py-2.5 px-3">Status</th>
-                  <th className="py-2.5 px-3 text-right">Actions</th>
+                  <th className="py-3 px-3">{language === 'ta' ? 'உறுப்பினர் பெயர்' : 'Member Name'}</th>
+                  <th className="py-3 px-3">{language === 'ta' ? 'தொடர்பு' : 'Contact'}</th>
+                  <th className="py-3 px-3">{language === 'ta' ? 'பகுதி & மாவட்டம்' : 'Area & District'}</th>
+                  <th className="py-3 px-3">{language === 'ta' ? 'ஒதுக்கப்பட்ட குழு' : 'Assigned Group'}</th>
+                  <th className="py-3 px-3">{language === 'ta' ? 'பொறுப்பு' : 'Role'}</th>
+                  <th className="py-3 px-3">{t.status}</th>
+                  <th className="py-3 px-3 text-right">{t.actions}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
+              <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredUsers.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-800/40">
-                    <td className="py-3 px-3 font-semibold text-white">{u.name}</td>
+                  <tr key={u.id} className="hover:bg-slate-50">
+                    <td className="py-3 px-3 font-bold text-slate-900">{u.name}</td>
                     <td className="py-3 px-3">
                       <div>{u.phone}</div>
-                      <div className="text-slate-500 text-[11px]">{u.email}</div>
+                      <div className="text-slate-400 text-[11px]">{u.email}</div>
                     </td>
                     <td className="py-3 px-3">
                       {u.area}, {u.district}
                     </td>
-                    <td className="py-3 px-3">
+                    <td className="py-3 px-3 font-medium">
                       {u.group_name || (
-                        <span className="text-slate-500 italic">None</span>
+                        <span className="text-slate-400 italic">None</span>
                       )}
                     </td>
                     <td className="py-3 px-3">
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                           u.role === 'SUPER_ADMIN'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            ? 'bg-amber-100 text-amber-900 border-amber-300'
                             : u.role === 'GROUP_ADMIN'
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                            : 'bg-slate-800 text-slate-400'
+                            ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                            : 'bg-slate-100 text-slate-700 border-slate-200'
                         }`}
                       >
-                        {u.role.replace(/_/g, ' ')}
+                        {u.role === 'SUPER_ADMIN' ? t.roleSuperAdmin : u.role === 'GROUP_ADMIN' ? t.roleGroupAdmin : t.roleMember}
                       </span>
                     </td>
                     <td className="py-3 px-3">
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                           u.status === 'APPROVED'
-                            ? 'text-emerald-400'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                             : u.status === 'PENDING'
-                            ? 'text-amber-400'
-                            : 'text-rose-400'
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : 'bg-rose-50 text-rose-800 border-rose-200'
                         }`}
                       >
                         {u.status}
@@ -808,12 +812,12 @@ export const SuperAdminDashboard: React.FC = () => {
                           onClick={async () => {
                             const newRole = u.role === 'GROUP_ADMIN' ? 'USER' : 'GROUP_ADMIN';
                             await api.assignUserRole(u.id, newRole);
-                            showToast('success', `Role updated for ${u.name}`);
+                            showToast('success', `${u.name} - ${language === 'ta' ? 'பொறுப்பு மாற்றப்பட்டது' : 'Role updated'}`);
                             await fetchAllData();
                           }}
-                          className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium underline ml-2"
+                          className="text-[11px] text-emerald-700 hover:text-emerald-900 font-bold underline ml-2"
                         >
-                          {u.role === 'GROUP_ADMIN' ? 'Make Member' : 'Designate Group Admin'}
+                          {u.role === 'GROUP_ADMIN' ? (language === 'ta' ? 'உறுப்பினராக்கு' : 'Make Member') : (language === 'ta' ? 'தலைவியாக நியமி' : 'Designate Group Admin')}
                         </button>
                       )}
                     </td>
@@ -830,11 +834,11 @@ export const SuperAdminDashboard: React.FC = () => {
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-white">
-                Magalir Kuzhu Groups & Dedicated Chat Rooms
+              <h2 className="text-base font-bold text-slate-900">
+                {t.activeGroups}
               </h2>
-              <p className="text-xs text-slate-400">
-                Each group has a designated Group Admin and an automatic dedicated chatroom.
+              <p className="text-xs text-slate-500">
+                {language === 'ta' ? 'ஒவ்வொரு குழுவிற்கும் ஒரு தலைவி மற்றும் அரட்டை அறை உண்டு.' : 'Each group has a designated Group Admin and an automatic dedicated chatroom.'}
               </p>
             </div>
             <button
@@ -845,10 +849,10 @@ export const SuperAdminDashboard: React.FC = () => {
                 setNewGroupArea('');
                 setNewGroupDistrict('');
               }}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow inline-flex items-center space-x-1.5 transition-colors"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs inline-flex items-center space-x-1.5 transition-colors"
             >
               <PlusCircle className="w-4 h-4" />
-              <span>Create New Group</span>
+              <span>{t.createNewGroup}</span>
             </button>
           </div>
 
@@ -856,31 +860,31 @@ export const SuperAdminDashboard: React.FC = () => {
             {groups.map((grp) => (
               <div
                 key={grp.id}
-                className="p-5 rounded-xl bg-slate-900 border border-slate-800 shadow-sm space-y-3"
+                className="p-5 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3"
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="text-sm font-bold text-white">{grp.group_name}</h3>
-                    <p className="text-xs text-slate-400 flex items-center mt-0.5">
-                      <MapPin className="w-3 h-3 mr-1 text-slate-500" />
+                    <h3 className="text-sm font-bold text-slate-900">{grp.group_name}</h3>
+                    <p className="text-xs text-slate-500 flex items-center mt-0.5">
+                      <MapPin className="w-3 h-3 mr-1 text-slate-400" />
                       {grp.area}, {grp.district}
                     </p>
                   </div>
-                  <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-medium">
-                    {grp.member_count || 0} Members
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
+                    {grp.member_count || 0} {t.activeMembersCount}
                   </span>
                 </div>
 
-                <div className="p-3 bg-slate-800/80 rounded-lg text-xs space-y-1">
+                <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1 border border-slate-100">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Designated Group Admin:</span>
-                    <span className="font-semibold text-emerald-300">
+                    <span className="text-slate-500">{t.groupAdminLabel}:</span>
+                    <span className="font-bold text-emerald-800">
                       {grp.group_admin_name || 'Unassigned'}
                     </span>
                   </div>
                   {grp.group_admin_phone && (
-                    <div className="text-[11px] text-slate-400 flex items-center">
-                      <Phone className="w-3 h-3 mr-1 text-slate-500" />
+                    <div className="text-[11px] text-slate-500 flex items-center">
+                      <Phone className="w-3 h-3 mr-1 text-slate-400" />
                       {grp.group_admin_phone}
                     </div>
                   )}
@@ -889,10 +893,10 @@ export const SuperAdminDashboard: React.FC = () => {
                 <div className="flex items-center space-x-2 pt-1">
                   <button
                     onClick={() => setChatGroupId(grp.id)}
-                    className="flex-1 py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold rounded-lg inline-flex items-center justify-center space-x-1.5 transition-colors"
+                    className="flex-1 py-1.5 px-3 bg-slate-100 hover:bg-emerald-50 text-slate-800 hover:text-emerald-800 border border-slate-200 hover:border-emerald-300 text-xs font-bold rounded-xl inline-flex items-center justify-center space-x-1.5 transition-colors"
                   >
-                    <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Open Group Chat</span>
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>{language === 'ta' ? 'குழு அரட்டை திறக்க' : 'Open Group Chat'}</span>
                   </button>
                 </div>
               </div>
@@ -901,17 +905,17 @@ export const SuperAdminDashboard: React.FC = () => {
 
           {/* Group Chat Modal for Super Admin */}
           {chatGroupId && (
-            <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
-              <div className="max-w-2xl w-full bg-slate-900 rounded-2xl border border-slate-800 p-4 shadow-2xl space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                  <span className="text-sm font-bold text-white">
-                    Super Admin View: {groups.find((g) => g.id === chatGroupId)?.group_name}
+            <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+              <div className="max-w-2xl w-full bg-white rounded-2xl border border-slate-200 p-4 shadow-2xl space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <span className="text-sm font-bold text-slate-900">
+                    {t.roleSuperAdmin} View: {groups.find((g) => g.id === chatGroupId)?.group_name}
                   </span>
                   <button
                     onClick={() => setChatGroupId(null)}
-                    className="text-slate-400 hover:text-white font-bold text-sm"
+                    className="text-slate-400 hover:text-slate-600 font-bold text-sm"
                   >
-                    ✕ Close Chat
+                    ✕ {t.close}
                   </button>
                 </div>
                 <GroupChat
@@ -927,21 +931,21 @@ export const SuperAdminDashboard: React.FC = () => {
       {/* TAB 5: BROADCAST ANNOUNCEMENTS */}
       {activeTab === 'announcements' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-1 bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-4">
+          <div className="md:col-span-1 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
             <div>
-              <h3 className="text-base font-semibold text-white flex items-center">
-                <Send className="w-4 h-4 text-emerald-400 mr-2" />
-                Broadcast Announcement
+              <h3 className="text-base font-bold text-slate-900 flex items-center">
+                <Send className="w-4 h-4 text-emerald-600 mr-2" />
+                {t.broadcastTitle}
               </h3>
-              <p className="text-xs text-slate-400">
-                Send official circulars to all Magalir Kuzhu members (read-only noticeboard).
+              <p className="text-xs text-slate-500 mt-1">
+                {t.broadcastSubtitle}
               </p>
             </div>
 
             <form onSubmit={handleCreateAnnouncement} className="space-y-3" autoComplete="off">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Announcement Title
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {t.announcementTitleLabel}
                 </label>
                 <input
                   type="text"
@@ -949,14 +953,14 @@ export const SuperAdminDashboard: React.FC = () => {
                   autoComplete="off"
                   value={annTitle}
                   onChange={(e) => setAnnTitle(e.target.value)}
-                  placeholder="e.g. Subsidy Scheme for Tailoring Units"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder={t.announcementTitlePlaceholder}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Message Content
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {t.announcementMessageLabel}
                 </label>
                 <textarea
                   required
@@ -964,17 +968,17 @@ export const SuperAdminDashboard: React.FC = () => {
                   autoComplete="off"
                   value={annMessage}
                   onChange={(e) => setAnnMessage(e.target.value)}
-                  placeholder="Type the full circular or notice details..."
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder={t.announcementMessagePlaceholder}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={annLoading}
-                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow transition-colors disabled:opacity-50"
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50"
               >
-                {annLoading ? 'Publishing...' : 'Broadcast to All Members'}
+                {annLoading ? t.publishingAnnouncement : t.publishAnnouncementButton}
               </button>
             </form>
           </div>
@@ -987,161 +991,259 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* TAB 6: EMAIL DISPATCH AUDIT LOG */}
       {activeTab === 'emails' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-semibold text-white flex items-center">
-                <Mail className="w-4 h-4 text-emerald-400 mr-2" />
-                Real Email Dispatch Audit Log
-              </h3>
-              <p className="text-xs text-slate-400">
-                Audited records of all loan sanction emails dispatched via Nodemailer.
-              </p>
-            </div>
-
-            <button
-              onClick={async () => {
-                try {
-                  const res = await api.sendTestEmail({
-                    to: user?.email,
-                    userName: user?.name || 'Super Admin',
-                    amount: 5000,
-                  });
-                  showToast('success', 'Test loan sanction email dispatched!');
-                  await fetchAllData();
-                } catch (e: any) {
-                  showToast('error', e.message);
-                }
-              }}
-              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg inline-flex items-center space-x-1.5"
-            >
-              <Mail className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Send Test Sanction Email</span>
-            </button>
-          </div>
-
-          {emails.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-xs border border-slate-800 rounded-lg">
-              No loan sanction emails dispatched yet. Granting final loan sanction will send an automated email notice.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {emails.map((log) => (
-                <div
-                  key={log.id}
-                  className="p-4 rounded-xl bg-slate-800/80 border border-slate-700/80 space-y-2 text-xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-semibold text-white">To: {log.to}</span>
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          log.status === 'SENT'
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                        }`}
-                      >
-                        {log.status}
-                      </span>
-                    </div>
-                    <span className="text-slate-400 text-[11px]">
-                      {new Date(log.sent_at).toLocaleString('en-IN')}
+        <div className="space-y-4">
+          {/* Email Delivery Banner */}
+          <div className={`p-5 rounded-2xl border ${
+            smtpStatus?.active_mode === 'REAL_SMTP'
+              ? 'bg-emerald-50/80 border-emerald-200'
+              : 'bg-amber-50/80 border-amber-200'
+          }`}>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-start space-x-3.5">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                  smtpStatus?.active_mode === 'REAL_SMTP'
+                    ? 'bg-emerald-100 border-emerald-300 text-emerald-800'
+                    : 'bg-amber-100 border-amber-300 text-amber-800'
+                }`}>
+                  {smtpStatus?.active_mode === 'REAL_SMTP' ? (
+                    <ShieldCheck className="w-5 h-5 text-emerald-700" />
+                  ) : (
+                    <AlertTriangle className="w-5 h-5 text-amber-700" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {smtpStatus?.active_mode === 'REAL_SMTP' ? t.liveSmtpActive : t.sandboxActive}
+                    </h3>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      smtpStatus?.active_mode === 'REAL_SMTP'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : 'bg-amber-100 text-amber-800 border-amber-300'
+                    }`}>
+                      {smtpStatus?.active_mode === 'REAL_SMTP' ? 'LIVE SMTP' : 'SANDBOX'}
                     </span>
                   </div>
-
-                  <div className="text-slate-300 font-medium">Subject: "{log.subject}"</div>
-                  <div className="p-2.5 bg-slate-900 rounded border border-slate-800 text-slate-400 font-mono text-[11px]">
-                    {log.body}
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                    <span>{log.info}</span>
-                    {log.preview_url && (
-                      <a
-                        href={log.preview_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-emerald-400 hover:underline inline-flex items-center space-x-1 font-semibold"
-                      >
-                        <span>View Live Ethereal Inbox Receipt</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
-                  </div>
+                  <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
+                    {smtpStatus?.active_mode === 'REAL_SMTP'
+                      ? (language === 'ta'
+                          ? `அனைத்து கடன் ஒப்புதல் அறிவிப்புகளும் ${smtpStatus?.active_transport?.user || 'ஜிமெயில்'} வழியாக உறுப்பினர்களின் உண்மையான இன்பாக்ஸுக்கு உடனடியாக அனுப்பப்படுகின்றன.`
+                          : `All loan sanction approvals automatically deliver real emails to registered member inboxes via ${smtpStatus?.active_transport?.user || 'SMTP relay'}.`)
+                      : (language === 'ta'
+                          ? `ஏன் ஜிமெயிலில் மின்னஞ்சல் வரவில்லை? சாண்ட்பாக்ஸ் முறையில், நிஜ சான்றுகள் இன்றி சோதிக்க மின்னஞ்சல்கள் தற்காலிக மெய்நிகர் பெட்டியில் வைக்கப்படுகின்றன. sherasanjayn@gmail.com-ல் உண்மையான மின்னஞ்சல் பெற Google App Password கட்டமைக்கவும்.`
+                          : `Why didn't my Gmail receive the email? In test sandbox mode, emails are captured safely inside a virtual mailbox so you can test without passwords. To receive real emails in sherasanjayn@gmail.com, configure a Google App Password below.`)}
+                  </p>
                 </div>
-              ))}
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsConfigModalOpen(true)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 shadow-xs transition-colors ${
+                    smtpStatus?.active_mode === 'REAL_SMTP'
+                      ? 'bg-white hover:bg-slate-50 text-slate-800 border border-slate-300'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  }`}
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>{t.configureSmtpBtn}</span>
+                </button>
+              </div>
             </div>
-          )}
+          </div>
+
+          {/* Audit Records List Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center">
+                  <Mail className="w-4 h-4 text-emerald-600 mr-2" />
+                  {t.emailAuditLog}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {language === 'ta'
+                    ? 'அனைத்து கடன் ஒப்புதல் மின்னஞ்சல்களின் அதிகாரப்பூர்வ தணிக்கை பதிவு.'
+                    : 'Audited records of all loan sanction emails dispatched via automated notification system.'}
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setIsConfigModalOpen(true)}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-bold rounded-xl inline-flex items-center space-x-1.5"
+                >
+                  <Settings className="w-3.5 h-3.5 text-slate-500" />
+                  <span>{language === 'ta' ? 'SMTP அமைப்புகள்' : 'SMTP Settings'}</span>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await api.sendTestEmail({
+                        to: user?.email || 'sherasanjayn@gmail.com',
+                        userName: user?.name || 'Super Admin',
+                        amount: 5000,
+                      });
+                      showToast(
+                        'success',
+                        res.delivery_mode === 'REAL_SMTP'
+                          ? (language === 'ta' ? 'உண்மை கடன் ஒப்புதல் மின்னஞ்சல் அனுப்பப்பட்டது!' : `Real sanction email dispatched to ${user?.email || 'sherasanjayn@gmail.com'}!`)
+                          : (language === 'ta' ? 'மாதிரி மின்னஞ்சல் சாண்ட்பாக்ஸில் பதிவானது (ஜிமெயிலில் பெற SMTP அமைக்கவும்)' : 'Test email dispatched to virtual sandbox. Configure SMTP for real Gmail delivery.')
+                      );
+                      await fetchAllData();
+                    } catch (e: any) {
+                      showToast('error', e.message);
+                    }
+                  }}
+                  className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold rounded-xl inline-flex items-center space-x-1.5"
+                >
+                  <Mail className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{t.testEmailBtn}</span>
+                </button>
+              </div>
+            </div>
+
+            {emails.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs border border-slate-200 rounded-xl">
+                {language === 'ta' ? 'இன்னும் கடன் ஒப்புதல் மின்னஞ்சல்கள் எதுவும் அனுப்பப்படவில்லை.' : 'No loan sanction emails dispatched yet.'}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {emails.map((log) => {
+                  const isReal = log.delivery_mode === 'REAL_SMTP';
+                  return (
+                    <div
+                      key={log.id}
+                      className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs hover:border-slate-300 transition-colors"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-slate-900 font-mono">To: {log.to}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              isReal
+                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                : 'bg-amber-100 text-amber-900 border-amber-300'
+                            }`}
+                          >
+                            {isReal ? t.realInboxDelivered : t.sandboxCaptured}
+                          </span>
+                        </div>
+                        <span className="text-slate-500 text-[11px]">
+                          {new Date(log.sent_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
+                        </span>
+                      </div>
+
+                      <div className="text-slate-900 font-semibold text-xs">
+                        Subject: <span className="text-emerald-900 font-bold">"{log.subject}"</span>
+                      </div>
+
+                      <div className="p-3 bg-white rounded-lg border border-slate-200 text-slate-700 font-mono text-[11px] leading-relaxed">
+                        {log.body}
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-slate-500 pt-1 gap-2">
+                        <span className="truncate max-w-md">{log.info}</span>
+                        <div className="flex items-center space-x-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setViewingEmail(log)}
+                            className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 rounded-lg font-bold inline-flex items-center space-x-1 transition-colors"
+                          >
+                            <Eye className="w-3 h-3 text-emerald-600" />
+                            <span>{t.viewRenderedEmail}</span>
+                          </button>
+
+                          {log.preview_url && (
+                            <a
+                              href={log.preview_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg font-bold inline-flex items-center space-x-1 transition-colors"
+                            >
+                              <span>{t.viewLivePreview}</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {/* APPROVE & AUTO-SUGGEST MODAL */}
+      {/* APPROVE & AUTO-SUGGEST MODAL - White Theme */}
       {approvingUser && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white border border-emerald-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div>
-                <h3 className="text-lg font-bold text-white flex items-center">
-                  <UserCheck className="w-5 h-5 text-emerald-400 mr-2" />
-                  Approve Registration & Allocate Group
+                <h3 className="text-base font-bold text-slate-900 flex items-center">
+                  <UserCheck className="w-5 h-5 text-emerald-600 mr-2" />
+                  {t.allocateGroupTitle}
                 </h3>
-                <p className="text-xs text-slate-400">
-                  Applicant: <span className="text-white font-semibold">{approvingUser.name}</span> · Area: {approvingUser.area}, {approvingUser.district}
+                <p className="text-xs text-slate-500">
+                  Applicant: <span className="text-slate-900 font-bold">{approvingUser.name}</span> · {approvingUser.area}, {approvingUser.district}
                 </p>
               </div>
               <button
                 onClick={() => setApprovingUser(null)}
-                className="text-slate-400 hover:text-white font-bold"
+                className="text-slate-400 hover:text-slate-600 font-bold"
               >
                 ✕
               </button>
             </div>
 
-            {/* Mode selection: Existing suggested group or create new */}
-            <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700 text-xs">
+            {/* Mode selection */}
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
               <button
                 type="button"
                 onClick={() => setIsCreatingNewGroup(false)}
-                className={`flex-1 py-1.5 font-medium rounded-md transition-colors ${
+                className={`flex-1 py-1.5 font-bold rounded-lg transition-colors ${
                   !isCreatingNewGroup
-                    ? 'bg-emerald-600 text-white'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-white text-emerald-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Auto-Suggested & Existing Groups
+                {language === 'ta' ? 'பொருத்தமான குழுக்கள்' : 'Auto-Suggested Groups'}
               </button>
               <button
                 type="button"
                 onClick={() => setIsCreatingNewGroup(true)}
-                className={`flex-1 py-1.5 font-medium rounded-md transition-colors ${
+                className={`flex-1 py-1.5 font-bold rounded-lg transition-colors ${
                   isCreatingNewGroup
-                    ? 'bg-emerald-600 text-white'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-white text-emerald-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                + Create New Group in {approvingUser.area}
+                + {language === 'ta' ? 'புதிய குழுவை உருவாக்கு' : `Create New Group in ${approvingUser.area}`}
               </button>
             </div>
 
             {!isCreatingNewGroup ? (
               <div className="space-y-3">
-                <label className="block text-xs font-medium text-slate-300">
-                  Select Matching Group for {approvingUser.area}, {approvingUser.district}:
+                <label className="block text-xs font-bold text-slate-700">
+                  {t.suggestedMatchingGroups}
                 </label>
                 <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                   {suggestedGroups.map((grp) => (
                     <label
                       key={grp.id}
-                      className={`p-3 rounded-lg border flex items-center justify-between cursor-pointer transition-colors text-xs ${
+                      className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-colors text-xs ${
                         selectedGroupId === grp.id
-                          ? 'bg-emerald-950/40 border-emerald-500 text-white'
-                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
+                          ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-semibold'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
                       <div>
-                        <div className="font-semibold text-white">{grp.group_name}</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          {grp.area}, {grp.district} · {grp.member_count || 0} Members
+                        <div className="font-bold text-slate-900">{grp.group_name}</div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          {grp.area}, {grp.district} · {grp.member_count || 0} {t.activeMembersCount}
                         </div>
                       </div>
                       <input
@@ -1149,43 +1251,43 @@ export const SuperAdminDashboard: React.FC = () => {
                         name="groupSelection"
                         checked={selectedGroupId === grp.id}
                         onChange={() => setSelectedGroupId(grp.id)}
-                        className="text-emerald-500 focus:ring-emerald-500"
+                        className="text-emerald-600 focus:ring-emerald-500"
                       />
                     </label>
                   ))}
                 </div>
               </div>
             ) : (
-              <div className="space-y-3 p-4 bg-slate-800/60 rounded-xl border border-slate-700 text-xs">
+              <div className="space-y-3 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">
-                    New Group Name
+                  <label className="block text-slate-700 font-bold mb-1">
+                    {t.groupNameLabel}
                   </label>
                   <input
                     type="text"
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
-                    placeholder="e.g. Mylapore Mahasakthi Kuzhu"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500"
+                    placeholder={t.groupNamePlaceholder}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-300 font-medium mb-1">Area</label>
+                    <label className="block text-slate-700 font-bold mb-1">{t.groupAreaLabel}</label>
                     <input
                       type="text"
                       value={newGroupArea}
                       onChange={(e) => setNewGroupArea(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-300 font-medium mb-1">District</label>
+                    <label className="block text-slate-700 font-bold mb-1">{t.groupDistrictLabel}</label>
                     <input
                       type="text"
                       value={newGroupDistrict}
                       onChange={(e) => setNewGroupDistrict(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900"
                     />
                   </div>
                 </div>
@@ -1193,16 +1295,16 @@ export const SuperAdminDashboard: React.FC = () => {
             )}
 
             {/* Designate as Group Admin checkbox */}
-            <div className="p-3 bg-slate-800/60 rounded-lg border border-slate-700 flex items-center space-x-2">
+            <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200 flex items-center space-x-2">
               <input
                 type="checkbox"
                 id="designateAdmin"
                 checked={designateGroupAdmin}
                 onChange={(e) => setDesignateGroupAdmin(e.target.checked)}
-                className="w-4 h-4 text-emerald-600 rounded bg-slate-900 border-slate-700 focus:ring-emerald-500"
+                className="w-4 h-4 text-emerald-600 rounded bg-white border-slate-300 focus:ring-emerald-500"
               />
-              <label htmlFor="designateAdmin" className="text-xs text-slate-200 cursor-pointer">
-                Designate <span className="font-semibold text-white">{approvingUser.name}</span> as the official Group Admin
+              <label htmlFor="designateAdmin" className="text-xs text-slate-800 cursor-pointer font-medium">
+                {t.designateAsGroupAdmin} (<span className="font-bold text-slate-900">{approvingUser.name}</span>)
               </label>
             </div>
 
@@ -1210,17 +1312,17 @@ export const SuperAdminDashboard: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setApprovingUser(null)}
-                className="flex-1 py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium"
+                className="flex-1 py-2 px-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold"
               >
-                Cancel
+                {t.cancel}
               </button>
               <button
                 type="button"
                 onClick={handleSubmitApproval}
                 disabled={!isCreatingNewGroup && !selectedGroupId}
-                className="flex-1 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow disabled:opacity-50"
+                className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs disabled:opacity-50"
               >
-                Approve & Allocate Member
+                {t.confirmApproval}
               </button>
             </div>
           </div>
@@ -1229,16 +1331,16 @@ export const SuperAdminDashboard: React.FC = () => {
 
       {/* CREATE GROUP MODAL (Standalone) */}
       {isCreatingNewGroup && !approvingUser && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-bold text-white flex items-center">
-                <Building className="w-4 h-4 text-emerald-400 mr-2" />
-                Create New Magalir Kuzhu Group
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white border border-emerald-200 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900 flex items-center">
+                <Building className="w-4 h-4 text-emerald-600 mr-2" />
+                {t.createNewGroup}
               </h3>
               <button
                 onClick={() => setIsCreatingNewGroup(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-slate-600"
               >
                 ✕
               </button>
@@ -1253,7 +1355,7 @@ export const SuperAdminDashboard: React.FC = () => {
                     area: newGroupArea.trim(),
                     district: newGroupDistrict.trim(),
                   });
-                  showToast('success', `Created group ${newGroupName}`);
+                  showToast('success', `${newGroupName} - ${language === 'ta' ? 'குழு உருவாக்கப்பட்டது' : 'Group created'}`);
                   setIsCreatingNewGroup(false);
                   await fetchAllData();
                 } catch (err: any) {
@@ -1263,37 +1365,37 @@ export const SuperAdminDashboard: React.FC = () => {
               className="space-y-3 text-xs"
             >
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Group Name</label>
+                <label className="block text-slate-700 font-bold mb-1">{t.groupNameLabel}</label>
                 <input
                   type="text"
                   required
                   value={newGroupName}
                   onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="e.g. Madurai Meenakshi Kuzhu"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                  placeholder={t.groupNamePlaceholder}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Area / Locality</label>
+                  <label className="block text-slate-700 font-bold mb-1">{t.groupAreaLabel}</label>
                   <input
                     type="text"
                     required
                     value={newGroupArea}
                     onChange={(e) => setNewGroupArea(e.target.value)}
                     placeholder="e.g. Simmakkal"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">District</label>
+                  <label className="block text-slate-700 font-bold mb-1">{t.groupDistrictLabel}</label>
                   <input
                     type="text"
                     required
                     value={newGroupDistrict}
                     onChange={(e) => setNewGroupDistrict(e.target.value)}
                     placeholder="e.g. Madurai"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-900"
                   />
                 </div>
               </div>
@@ -1302,21 +1404,36 @@ export const SuperAdminDashboard: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsCreatingNewGroup(false)}
-                  className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300"
+                  className="flex-1 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 font-bold"
                 >
-                  Cancel
+                  {t.cancel}
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-semibold"
+                  className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs"
                 >
-                  Create Group
+                  {t.createGroupButton}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Email Configuration Modal */}
+      <EmailConfigModal
+        isOpen={isConfigModalOpen}
+        onClose={() => setIsConfigModalOpen(false)}
+        onSaved={fetchAllData}
+        smtpStatus={smtpStatus}
+      />
+
+      {/* Email Rendered Message Viewer Modal */}
+      <EmailViewerModal
+        isOpen={Boolean(viewingEmail)}
+        onClose={() => setViewingEmail(null)}
+        email={viewingEmail}
+      />
     </div>
   );
 };

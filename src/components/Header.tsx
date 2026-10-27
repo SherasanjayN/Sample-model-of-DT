@@ -15,21 +15,21 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSos }) => {
     switch (role) {
       case 'SUPER_ADMIN':
         return {
-          label: language === 'ta' ? 'முதன்மை நிர்வாகி' : 'Super Admin',
+          label: t.roleSuperAdmin,
           icon: ShieldCheck,
-          className: 'bg-amber-100 text-amber-900 border border-amber-300',
+          className: 'bg-amber-50 text-amber-900 border border-amber-300 font-semibold',
         };
       case 'GROUP_ADMIN':
         return {
-          label: language === 'ta' ? 'குழு நிர்வாகி' : 'Group Admin',
+          label: t.roleGroupAdmin,
           icon: UserCheck,
-          className: 'bg-emerald-100 text-emerald-900 border border-emerald-300',
+          className: 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-semibold',
         };
       default:
         return {
-          label: language === 'ta' ? 'உறுப்பினர்' : 'Member',
+          label: t.roleMember,
           icon: UserIcon,
-          className: 'bg-slate-100 text-slate-800 border border-slate-200',
+          className: 'bg-slate-100 text-slate-800 border border-slate-300 font-semibold',
         };
     }
   };
@@ -38,42 +38,54 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSos }) => {
   const IconComponent = badge.icon;
 
   return (
-    <header className="bg-slate-900 text-white border-b border-slate-800 shadow-sm sticky top-0 z-30">
+    <header className="bg-white text-slate-900 border-b border-emerald-100 shadow-xs sticky top-0 z-30">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Title */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-lg bg-emerald-600 flex items-center justify-center text-white shadow">
-              <Users className="w-6 h-6" />
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-sm shadow-emerald-700/20">
+              <Users className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-bold text-lg tracking-tight text-white">{t.systemTitle}</span>
-                <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">
+                <span className="font-bold text-base sm:text-lg tracking-tight text-slate-900">
+                  {t.systemTitle}
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold">
                   {t.tamilBadge}
                 </span>
               </div>
-              <p className="text-xs text-slate-400">{t.systemSubtitle}</p>
+              <p className="text-xs text-slate-500 font-medium hidden sm:block">
+                {t.systemSubtitle}
+              </p>
             </div>
           </div>
 
-          {/* Controls: Language toggle, SOS button & User */}
+          {/* Controls: Language toggle, SOS button & User Profile */}
           <div className="flex items-center space-x-3">
             {/* Dual Language Toggle (EN | தமிழ்) */}
-            <div className="flex items-center bg-slate-800 p-1 rounded-lg border border-slate-700 text-xs">
-              <Globe className="w-3.5 h-3.5 text-slate-400 ml-1.5 mr-1" />
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+              <Globe className="w-3.5 h-3.5 text-slate-500 ml-1.5 mr-1" />
               <button
+                type="button"
                 onClick={() => setLanguage('en')}
-                className={`px-2 py-0.5 rounded font-medium transition-colors ${
-                  language === 'en' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                aria-label="Switch to English"
+                className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+                  language === 'en'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-emerald-700'
                 }`}
               >
                 EN
               </button>
               <button
+                type="button"
                 onClick={() => setLanguage('ta')}
-                className={`px-2 py-0.5 rounded font-medium transition-colors ${
-                  language === 'ta' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                aria-label="Switch to Tamil"
+                className={`px-2.5 py-1 rounded-lg font-semibold transition-all ${
+                  language === 'ta'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-emerald-700'
                 }`}
               >
                 தமிழ்
@@ -84,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSos }) => {
             {user && user.status === 'APPROVED' && onOpenSos && (
               <button
                 onClick={onOpenSos}
-                className="hidden sm:inline-flex items-center space-x-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg shadow-sm border border-rose-400 transition-colors animate-pulse"
+                className="hidden sm:inline-flex items-center space-x-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs border border-rose-600 transition-colors"
               >
                 <span>🚨 {language === 'ta' ? 'அவசர SOS' : 'Emergency SOS'}</span>
               </button>
@@ -92,20 +104,20 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSos }) => {
 
             {/* User profile & actions */}
             {user && (
-              <div className="flex items-center space-x-3 border-l border-slate-800 pl-3">
+              <div className="flex items-center space-x-2 sm:space-x-3 border-l border-slate-200 pl-2 sm:pl-3">
                 {group && (
-                  <div className="hidden lg:flex items-center space-x-1.5 text-xs text-slate-300 bg-slate-800/80 px-2.5 py-1 rounded-md border border-slate-700">
-                    <Building2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="font-medium text-slate-200">{group.group_name}</span>
+                  <div className="hidden lg:flex items-center space-x-1.5 text-xs text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                    <Building2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="font-semibold text-emerald-900">{group.group_name}</span>
                   </div>
                 )}
 
-                <div className="text-right hidden sm:block">
-                  <div className="text-sm font-semibold text-white leading-tight">{user.name}</div>
-                  <div className="text-xs text-slate-400">{user.email}</div>
+                <div className="text-right hidden md:block">
+                  <div className="text-sm font-semibold text-slate-900 leading-tight">{user.name}</div>
+                  <div className="text-xs text-slate-500">{user.email}</div>
                 </div>
 
-                <div className={`flex items-center space-x-1 text-xs px-2.5 py-1 rounded-md font-medium ${badge.className}`}>
+                <div className={`flex items-center space-x-1 text-xs px-2.5 py-1 rounded-lg ${badge.className}`}>
                   <IconComponent className="w-3.5 h-3.5" />
                   <span>{badge.label}</span>
                 </div>
@@ -113,7 +125,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSos }) => {
                 <button
                   onClick={() => logout()}
                   title={t.signOut}
-                  className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-md transition-colors"
+                  className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-200"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
