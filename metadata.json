@@ -1,0 +1,6 @@
+{
+  "name": "Magalir Kuzhu Management System",
+  "description": "Self-Help Group (SHG) portal with member registration, group allocation, group chat, 3-tier loan approvals, and real-time email notifications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
